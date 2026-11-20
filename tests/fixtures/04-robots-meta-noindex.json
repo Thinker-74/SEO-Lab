@@ -1,0 +1,179 @@
+{
+    "fixture_id": "04",
+    "family": "robots",
+    "title": "Meta robots con index e noindex: effetto noindex per Googlebot",
+    "scans": [
+        {
+            "input": {
+                "html": "<!doctype html><html lang='it'><head><meta charset='utf-8'><title>Pagina 04</title><meta name='robots' content='index,follow'><meta name='robots' content='noindex'><link rel='canonical' href='https://example.test/pagina-04/'></head><body><main><h1>Pagina 04</h1></main></body></html>",
+                "headers": {}
+            },
+            "report": {
+                "scan_id": "00000000-0000-4000-8000-000000000411",
+                "schema_version": "1",
+                "post_id": 104,
+                "source": {
+                    "provider": "yoast",
+                    "provider_version": "fixture"
+                },
+                "requested_url": "https://example.test/pagina-04/",
+                "observed_url": "https://example.test/pagina-04/",
+                "captured_at_utc": "2026-11-20T17:00:00Z",
+                "capture_status": "ok",
+                "http": {
+                    "status": 200,
+                    "content_type": "text/html; charset=UTF-8",
+                    "body_sha256": "6037af338695c3448cf9a362c6b37f474fd7b66684f6f5a5abaca9eac047d993",
+                    "redirects": [],
+                    "x_robots_tag": []
+                },
+                "expected": {
+                    "configured": {
+                        "canonical": {
+                            "availability": "unavailable",
+                            "value": null,
+                            "source": null
+                        },
+                        "robots": {
+                            "availability": "unavailable",
+                            "value": null,
+                            "source": null
+                        },
+                        "jsonld": {
+                            "availability": "unavailable",
+                            "value": null,
+                            "source": null
+                        }
+                    },
+                    "resolved": {
+                        "canonical": {
+                            "availability": "available",
+                            "value": "https://example.test/pagina-04/",
+                            "source": "yoast:resolved"
+                        },
+                        "robots": {
+                            "availability": "available",
+                            "value": "index",
+                            "source": "yoast:resolved"
+                        },
+                        "jsonld": {
+                            "availability": "unavailable",
+                            "value": null,
+                            "source": null
+                        }
+                    }
+                },
+                "observed_values": {
+                    "canonical": {
+                        "availability": "present",
+                        "value": [
+                            "https://example.test/pagina-04/"
+                        ]
+                    },
+                    "robots": {
+                        "availability": "present",
+                        "value": [
+                            {
+                                "source": "meta",
+                                "bot": "all",
+                                "directive": "index"
+                            },
+                            {
+                                "source": "meta",
+                                "bot": "all",
+                                "directive": "follow"
+                            },
+                            {
+                                "source": "meta",
+                                "bot": "all",
+                                "directive": "noindex"
+                            }
+                        ]
+                    },
+                    "jsonld": {
+                        "availability": "absent",
+                        "value": []
+                    }
+                },
+                "rule_outcomes": [
+                    {
+                        "rule_id": "ROBOTS_EFFECTIVE_MISMATCH",
+                        "rule_version": "1.0.0",
+                        "state": "confirmed_anomaly",
+                        "cause_state": "unknown"
+                    },
+                    {
+                        "rule_id": "ROBOTS_UNEXPECTED_NOINDEX",
+                        "rule_version": "1.0.0",
+                        "state": "confirmed_anomaly",
+                        "cause_state": "unknown"
+                    }
+                ],
+                "findings": [
+                    {
+                        "rule_id": "ROBOTS_EFFECTIVE_MISMATCH",
+                        "rule_version": "1.0.0",
+                        "state": "confirmed_anomaly",
+                        "severity": "error",
+                        "expected": {
+                            "value": "index",
+                            "source": "yoast:resolved"
+                        },
+                        "observed": {
+                            "effect_for_googlebot": "noindex",
+                            "directives": [
+                                "index,follow",
+                                "noindex"
+                            ]
+                        },
+                        "evidence": [
+                            {
+                                "kind": "html",
+                                "locator": "//head/meta[@name='robots'][2]",
+                                "excerpt": "<meta name='robots' content='noindex'>"
+                            }
+                        ],
+                        "cause": {
+                            "state": "unknown",
+                            "candidates": [],
+                            "proof": []
+                        },
+                        "next_test": "Isolare il componente che emette il meta robots noindex",
+                        "verification_method": "Ripetere la scansione e verificare l'effetto noindex per Googlebot"
+                    },
+                    {
+                        "rule_id": "ROBOTS_UNEXPECTED_NOINDEX",
+                        "rule_version": "1.0.0",
+                        "state": "confirmed_anomaly",
+                        "severity": "error",
+                        "expected": {
+                            "value": "index",
+                            "source": "yoast:resolved"
+                        },
+                        "observed": {
+                            "effect_for_googlebot": "noindex",
+                            "directives": [
+                                "index,follow",
+                                "noindex"
+                            ]
+                        },
+                        "evidence": [
+                            {
+                                "kind": "html",
+                                "locator": "//head/meta[@name='robots'][2]",
+                                "excerpt": "<meta name='robots' content='noindex'>"
+                            }
+                        ],
+                        "cause": {
+                            "state": "unknown",
+                            "candidates": [],
+                            "proof": []
+                        },
+                        "next_test": "Isolare il componente che emette il meta robots noindex",
+                        "verification_method": "Ripetere la scansione e verificare che il noindex non sia presente"
+                    }
+                ]
+            }
+        }
+    ]
+}

@@ -1,0 +1,121 @@
+{
+    "fixture_id": "06",
+    "family": "robots",
+    "title": "Noindex intenzionale di Yoast con direttiva per un altro bot (negativo)",
+    "scans": [
+        {
+            "input": {
+                "html": "<!doctype html><html lang='it'><head><meta charset='utf-8'><title>Pagina 06</title><meta name='robots' content='noindex,follow'><meta name='bingbot' content='index,follow'><link rel='canonical' href='https://example.test/pagina-06/'></head><body><main><h1>Pagina 06</h1></main></body></html>",
+                "headers": {}
+            },
+            "report": {
+                "scan_id": "00000000-0000-4000-8000-000000000611",
+                "schema_version": "1",
+                "post_id": 106,
+                "source": {
+                    "provider": "yoast",
+                    "provider_version": "fixture"
+                },
+                "requested_url": "https://example.test/pagina-06/",
+                "observed_url": "https://example.test/pagina-06/",
+                "captured_at_utc": "2026-11-20T17:00:00Z",
+                "capture_status": "ok",
+                "http": {
+                    "status": 200,
+                    "content_type": "text/html; charset=UTF-8",
+                    "body_sha256": "679fc8213c50731e3fd0a741f06d8642e16e07d4d6f7e99bafa294a7b51a781e",
+                    "redirects": [],
+                    "x_robots_tag": []
+                },
+                "expected": {
+                    "configured": {
+                        "canonical": {
+                            "availability": "unavailable",
+                            "value": null,
+                            "source": null
+                        },
+                        "robots": {
+                            "availability": "unavailable",
+                            "value": null,
+                            "source": null
+                        },
+                        "jsonld": {
+                            "availability": "unavailable",
+                            "value": null,
+                            "source": null
+                        }
+                    },
+                    "resolved": {
+                        "canonical": {
+                            "availability": "available",
+                            "value": "https://example.test/pagina-06/",
+                            "source": "yoast:resolved"
+                        },
+                        "robots": {
+                            "availability": "available",
+                            "value": "noindex",
+                            "source": "yoast:resolved"
+                        },
+                        "jsonld": {
+                            "availability": "unavailable",
+                            "value": null,
+                            "source": null
+                        }
+                    }
+                },
+                "observed_values": {
+                    "canonical": {
+                        "availability": "present",
+                        "value": [
+                            "https://example.test/pagina-06/"
+                        ]
+                    },
+                    "robots": {
+                        "availability": "present",
+                        "value": [
+                            {
+                                "source": "meta",
+                                "bot": "all",
+                                "directive": "noindex"
+                            },
+                            {
+                                "source": "meta",
+                                "bot": "all",
+                                "directive": "follow"
+                            },
+                            {
+                                "source": "meta",
+                                "bot": "bingbot",
+                                "directive": "index"
+                            },
+                            {
+                                "source": "meta",
+                                "bot": "bingbot",
+                                "directive": "follow"
+                            }
+                        ]
+                    },
+                    "jsonld": {
+                        "availability": "absent",
+                        "value": []
+                    }
+                },
+                "rule_outcomes": [
+                    {
+                        "rule_id": "ROBOTS_EFFECTIVE_MISMATCH",
+                        "rule_version": "1.0.0",
+                        "state": "no_anomaly",
+                        "cause_state": "unknown"
+                    },
+                    {
+                        "rule_id": "ROBOTS_UNEXPECTED_NOINDEX",
+                        "rule_version": "1.0.0",
+                        "state": "no_anomaly",
+                        "cause_state": "unknown"
+                    }
+                ],
+                "findings": []
+            }
+        }
+    ]
+}

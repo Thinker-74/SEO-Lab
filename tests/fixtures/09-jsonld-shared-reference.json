@@ -1,0 +1,132 @@
+{
+    "fixture_id": "09",
+    "family": "jsonld",
+    "title": "Nodo definito in uno script e riferimento allo stesso @id da un altro script (negativo)",
+    "scans": [
+        {
+            "input": {
+                "html": "<!doctype html><html lang='it'><head><script type='application/ld+json'>{\"@context\":\"https://schema.org\",\"@type\":\"WebSite\",\"@id\":\"https://example.test/#website\",\"url\":\"https://example.test/\"}</script><meta charset='utf-8'><title>Pagina 09</title><link rel='canonical' href='https://example.test/pagina-09/'><script type='application/ld+json'>{\"@context\":\"https://schema.org\",\"@graph\":[{\"@type\":\"Organization\",\"@id\":\"https://example.test/#organization\",\"name\":\"Example\"}]}</script><script type='application/ld+json'>{\"@context\":\"https://schema.org\",\"@type\":\"WebPage\",\"@id\":\"https://example.test/pagina-09/#webpage\",\"url\":\"https://example.test/pagina-09/\",\"publisher\":{\"@id\":\"https://example.test/#organization\"}}</script></head><body><main><h1>Pagina 09</h1></main></body></html>",
+                "headers": {}
+            },
+            "report": {
+                "scan_id": "00000000-0000-4000-8000-000000000911",
+                "schema_version": "1",
+                "post_id": 109,
+                "source": {
+                    "provider": "yoast",
+                    "provider_version": "fixture"
+                },
+                "requested_url": "https://example.test/pagina-09/",
+                "observed_url": "https://example.test/pagina-09/",
+                "captured_at_utc": "2026-11-20T17:00:00Z",
+                "capture_status": "ok",
+                "http": {
+                    "status": 200,
+                    "content_type": "text/html; charset=UTF-8",
+                    "body_sha256": "f0cbecffe37a889f55353b8660068ce5363029d33c92a88bb1b0c5068fd6fb2b",
+                    "redirects": [],
+                    "x_robots_tag": []
+                },
+                "expected": {
+                    "configured": {
+                        "canonical": {
+                            "availability": "unavailable",
+                            "value": null,
+                            "source": null
+                        },
+                        "robots": {
+                            "availability": "unavailable",
+                            "value": null,
+                            "source": null
+                        },
+                        "jsonld": {
+                            "availability": "unavailable",
+                            "value": null,
+                            "source": null
+                        }
+                    },
+                    "resolved": {
+                        "canonical": {
+                            "availability": "available",
+                            "value": "https://example.test/pagina-09/",
+                            "source": "yoast:resolved"
+                        },
+                        "robots": {
+                            "availability": "available",
+                            "value": "index",
+                            "source": "yoast:resolved"
+                        },
+                        "jsonld": {
+                            "availability": "available",
+                            "value": {
+                                "expected_node_ids": [
+                                    "https://example.test/#website"
+                                ]
+                            },
+                            "source": "yoast:resolved"
+                        }
+                    }
+                },
+                "observed_values": {
+                    "canonical": {
+                        "availability": "present",
+                        "value": [
+                            "https://example.test/pagina-09/"
+                        ]
+                    },
+                    "robots": {
+                        "availability": "absent",
+                        "value": []
+                    },
+                    "jsonld": {
+                        "availability": "present",
+                        "value": [
+                            {
+                                "id": "https://example.test/#website",
+                                "types": [
+                                    "WebSite"
+                                ],
+                                "script": 1
+                            },
+                            {
+                                "id": "https://example.test/#organization",
+                                "types": [
+                                    "Organization"
+                                ],
+                                "script": 2
+                            },
+                            {
+                                "id": "https://example.test/pagina-09/#webpage",
+                                "types": [
+                                    "WebPage"
+                                ],
+                                "script": 3
+                            }
+                        ]
+                    }
+                },
+                "rule_outcomes": [
+                    {
+                        "rule_id": "JSONLD_PARSE_ERROR",
+                        "rule_version": "1.0.0",
+                        "state": "no_anomaly",
+                        "cause_state": "unknown"
+                    },
+                    {
+                        "rule_id": "JSONLD_ENTITY_CONTRADICTION",
+                        "rule_version": "1.0.0",
+                        "state": "no_anomaly",
+                        "cause_state": "unknown"
+                    },
+                    {
+                        "rule_id": "JSONLD_EXPECTED_NODE_MISSING",
+                        "rule_version": "1.0.0",
+                        "state": "no_anomaly",
+                        "cause_state": "unknown"
+                    }
+                ],
+                "findings": []
+            }
+        }
+    ]
+}
