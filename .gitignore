@@ -1,6 +1,7 @@
 .ai/20_execution/
 .ai/30_review/
 .ai/bus/lock
+.ai/sandbox/
 .claude/settings.local.json
 .env
 .env.*
