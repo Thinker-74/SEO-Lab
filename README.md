@@ -2,7 +2,7 @@
 
 Plugin WordPress per farsi trovare da Google e dalle intelligenze artificiali: SEO tecnica completa più GEO (Generative Engine Optimization), con schede di conoscenza scritte da Claude.
 
-> Stato: 0.1.2, in uso su un sito in produzione. Sviluppo attivo, interfacce ancora soggette a cambiamenti.
+> Stato del progetto esistente: 0.1.2, in uso su un sito in produzione. Il repository pubblico contiene per ora documentazione e licenza, non ancora una release installabile. La futura base modulare è in progettazione.
 
 ## Cosa fa
 
@@ -37,7 +37,7 @@ Con i moduli attivi di default il plugin non contatta server di terzi, salvo l'A
 
 ## Licenza e riconoscimenti
 
-GPL-2.0-or-later. Vedi `LICENSE`.
+Il nuovo codice pubblicato in questo repository sarà distribuito con licenza **GPL-3.0-or-later** (testo GPLv3 in `LICENSE`). La versione esistente 0.1.2 deriva invece da un progetto GPL-2.0-or-later; eventuali porzioni riutilizzate mantengono i dovuti avvisi di copyright e provenienza.
 
 - Derivato da SEOlution Suite 7.1.8 (GPL-2.0-or-later). Le modifiche sono elencate in `CHANGELOG.md`.
 - Indice di leggibilità GULPEASE: Pietro Lucisano e Maria Emanuela Piemontese (GULP, Università di Roma La Sapienza, 1988).
