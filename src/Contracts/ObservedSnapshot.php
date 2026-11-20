@@ -14,9 +14,22 @@ final class ObservedSnapshot
     private const URL_PATTERN = '#^https?://[^\s]+\z#';
     private const CAPTURED_AT_PATTERN = '/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\z/';
     private const SHA256_PATTERN = '/^[0-9a-f]{64}\z/';
+    private const CAPTURE_REASON_PATTERN = '/^[a-z_]{1,40}\z/';
+    private const CACHE_HEADERS = ['age', 'etag', 'vary'];
+    private const CACHE_VALUE_MAX = 256;
+    private const POSITIONS_HEAD = ['head', 'outside_head'];
 
     /** @var string */
     private $status;
+
+    /** @var string|null */
+    private $captureReason;
+
+    /** @var array<string, string> */
+    private $cacheHeaders;
+
+    /** @var array<string, string[]>|null */
+    private $positions;
 
     /** @var string|null */
     private $requestedUrl;
@@ -96,6 +109,21 @@ final class ObservedSnapshot
             }
         }
 
+        $cacheHeaders = $http['cache_headers'] ?? [];
+        if (!is_array($cacheHeaders) || array_diff(array_keys($cacheHeaders), self::CACHE_HEADERS) !== []) {
+            throw new \InvalidArgumentException('http.cache_headers: solo chiavi age, etag, vary');
+        }
+        foreach ($cacheHeaders as $name => $value) {
+            if (!is_string($value) || $value === '' || strlen($value) > self::CACHE_VALUE_MAX || preg_match('/[\x00-\x1F\x7F]/', $value)) {
+                throw new \InvalidArgumentException('http.cache_headers.' . $name . ' non valido');
+            }
+        }
+
+        $captureReason = $data['capture_reason'] ?? null;
+        if ($captureReason !== null && (!is_string($captureReason) || !preg_match(self::CAPTURE_REASON_PATTERN, $captureReason))) {
+            throw new \InvalidArgumentException('capture_reason non valido');
+        }
+
         $requestedUrl = self::optionalUrl($data['requested_url'] ?? null, 'requested_url');
         $observedUrl = self::optionalUrl($data['observed_url'] ?? null, 'observed_url');
         $capturedAtUtc = $data['captured_at_utc'] ?? null;
@@ -121,7 +149,15 @@ final class ObservedSnapshot
             $values[$family] = new ObservedValue($family, $observedValues[$family], $status);
         }
 
+        $positions = null;
+        if (array_key_exists('observed_positions', $data) && $data['observed_positions'] !== null) {
+            $positions = self::normalizePositions($data['observed_positions'], $values);
+        }
+
         $this->status = $status;
+        $this->captureReason = $captureReason;
+        $this->cacheHeaders = $cacheHeaders;
+        $this->positions = $positions;
         $this->requestedUrl = $requestedUrl;
         $this->observedUrl = $observedUrl;
         $this->capturedAtUtc = $capturedAtUtc;
@@ -136,6 +172,58 @@ final class ObservedSnapshot
     public function status(): string
     {
         return $this->status;
+    }
+
+    /**
+     * Motivo stabile della capture (codice in inglese), assente se non previsto dal chiamante.
+     */
+    public function captureReason(): ?string
+    {
+        return $this->captureReason;
+    }
+
+    /**
+     * Intestazioni di cache in allowlist (age, etag, vary), assenti se non osservate.
+     *
+     * @return array<string, string>
+     */
+    public function cacheHeaders(): array
+    {
+        return $this->cacheHeaders;
+    }
+
+    /**
+     * Posizioni DOM o di header per canonical e robots, allineate per indice ai valori osservati.
+     *
+     * @return array<string, string[]>|null
+     */
+    public function observedPositions(): ?array
+    {
+        return $this->positions;
+    }
+
+    /**
+     * Campi di primo livello dello snapshot, nella forma letta dal costruttore.
+     *
+     * @return array<string, mixed>
+     */
+    public function toArray(): array
+    {
+        $out = [
+            'requested_url' => $this->requestedUrl,
+            'observed_url' => $this->observedUrl,
+            'captured_at_utc' => $this->capturedAtUtc,
+            'capture_status' => $this->status,
+        ];
+        if ($this->captureReason !== null) {
+            $out['capture_reason'] = $this->captureReason;
+        }
+        $out['http'] = $this->httpToArray();
+        $out['observed_values'] = $this->valuesToArray();
+        if ($this->positions !== null) {
+            $out['observed_positions'] = $this->positions;
+        }
+        return $out;
     }
 
     public function requestedUrl(): ?string
@@ -197,13 +285,17 @@ final class ObservedSnapshot
      */
     public function httpToArray(): array
     {
-        return [
+        $out = [
             'status' => $this->httpStatus,
             'content_type' => $this->contentType,
             'body_sha256' => $this->bodySha256,
             'redirects' => $this->redirects,
             'x_robots_tag' => $this->xRobotsTag,
         ];
+        if ($this->cacheHeaders !== []) {
+            $out['cache_headers'] = $this->cacheHeaders;
+        }
+        return $out;
     }
 
     /**
@@ -214,6 +306,48 @@ final class ObservedSnapshot
         $out = [];
         foreach (RuleCatalog::families() as $family) {
             $out[$family] = $this->values[$family]->toArray();
+        }
+        return $out;
+    }
+
+    /**
+     * Posizioni opzionali: liste per canonical e robots, di lunghezza pari ai valori osservati.
+     * Robots da meta: head o outside_head; robots da header: solo http_header.
+     *
+     * @param mixed                        $positions
+     * @param array<string, ObservedValue> $values
+     * @return array<string, string[]>
+     */
+    private static function normalizePositions($positions, array $values): array
+    {
+        if (!is_array($positions) || array_diff(array_keys($positions), ['canonical', 'robots']) !== []) {
+            throw new \InvalidArgumentException('observed_positions: solo chiavi canonical e robots');
+        }
+        $out = [];
+        foreach (['canonical', 'robots'] as $family) {
+            $list = $positions[$family] ?? [];
+            if (!ValueCopy::isList($list)) {
+                throw new \InvalidArgumentException('observed_positions.' . $family . ' deve essere una lista');
+            }
+            $items = $values[$family]->value() ?? [];
+            if (count($list) !== count($items)) {
+                throw new \InvalidArgumentException('observed_positions.' . $family . ': lunghezza diversa dai valori osservati');
+            }
+            foreach ($list as $index => $position) {
+                if (!is_string($position)) {
+                    throw new \InvalidArgumentException('observed_positions.' . $family . ': posizione non stringa');
+                }
+                if ($family === 'robots' && ($items[$index]['source'] ?? null) === 'header') {
+                    if ($position !== 'http_header') {
+                        throw new \InvalidArgumentException('observed_positions.robots: robots da header richiede http_header');
+                    }
+                    continue;
+                }
+                if (!in_array($position, self::POSITIONS_HEAD, true)) {
+                    throw new \InvalidArgumentException('observed_positions.' . $family . ': posizione fuori enum');
+                }
+            }
+            $out[$family] = $list;
         }
         return $out;
     }

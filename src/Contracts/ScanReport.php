@@ -198,13 +198,8 @@ final class ScanReport
             'schema_version' => '1',
             'post_id' => $this->postId,
             'source' => $this->source,
-            'requested_url' => $this->observed->requestedUrl(),
-            'observed_url' => $this->observed->observedUrl(),
-            'captured_at_utc' => $this->observed->capturedAtUtc(),
-            'capture_status' => $this->observed->status(),
-            'http' => $this->observed->httpToArray(),
+        ] + $this->observed->toArray() + [
             'expected' => $this->expected->toArray(),
-            'observed_values' => $this->observed->valuesToArray(),
             'rule_outcomes' => array_map(static function (RuleOutcome $outcome): array {
                 return $outcome->toArray();
             }, $this->outcomes),
