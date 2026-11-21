@@ -20,6 +20,8 @@ spl_autoload_register(static function (string $class): void {
     $roots = [
         'SeoLab\\Contracts\\' => 'src/Contracts/',
         'SeoLab\\Capture\\' => 'src/Capture/',
+        'SeoLab\\Rules\\' => 'src/Rules/',
+        'SeoLab\\Diagnosis\\' => 'src/Diagnosis/',
     ];
     foreach ($roots as $prefix => $dir) {
         if (strpos($class, $prefix) === 0) {
@@ -35,10 +37,13 @@ spl_autoload_register(static function (string $class): void {
 use SeoLab\Capture\AddressResolver;
 use SeoLab\Capture\IpClassifier;
 use SeoLab\Capture\SafeHttpCapturer;
+use SeoLab\Contracts\ExpectedProvider;
+use SeoLab\Contracts\ExpectedSnapshot;
 use SeoLab\Contracts\ObservedSnapshot;
 use SeoLab\Contracts\RuleCatalog;
 use SeoLab\Contracts\ScanReport;
 use SeoLab\Contracts\TrustedContent;
+use SeoLab\Diagnosis\JsonLdDiagnoser;
 
 // ---------------------------------------------------------------------------
 // Stub WordPress (namespace globale). Leggono lo stato di test da $GLOBALS.
@@ -702,7 +707,8 @@ check('documento completo senza tag: absent', values_of($r['snap'], 'canonical')
     && values_of($r['snap'], 'jsonld')['availability'] === 'absent');
 
 $r = ok_page(page('<script type="application/ld+json">{"@type":"WebSite"}</script>'));
-check('JSON-LD presente: unobservable fino a S3', values_of($r['snap'], 'jsonld')['availability'] === 'unobservable');
+check('JSON-LD presente: analizzato in S3 (present, sintassi completa)', values_of($r['snap'], 'jsonld')['availability'] === 'present'
+    && $r['snap']->jsonLdAnalysis()['syntax_complete'] === true && $r['snap']->jsonLdAnalysis()['blocks'] === 1);
 
 $r = ok_page(page('<template><script type="application/ld+json">{}</script></template>'));
 check('JSON-LD in template escluso', values_of($r['snap'], 'jsonld')['availability'] === 'absent');
@@ -901,10 +907,10 @@ check('R-3 base non interpretabile con riferimento assoluto: present', fam_of($r
 
 // R-4: il candidato JSON-LD si riconosce dall'essenza del MIME, prima di ';'.
 $r = ok_page(page('<script type="application/ld+json; charset=utf-8">{}</script>'));
-check('R-4 JSON-LD con parametri MIME: unobservable', fam_of($r, 'jsonld')['availability'] === 'unobservable');
+check('R-4 JSON-LD con parametri MIME: riconosciuto (present, S3)', fam_of($r, 'jsonld')['availability'] === 'present' && $r['snap']->jsonLdAnalysis()['blocks'] === 1);
 
 $r = ok_page(page('<script type=" Application/LD+JSON ">{}</script>'));
-check('R-4 JSON-LD con maiuscole e spazi: unobservable', fam_of($r, 'jsonld')['availability'] === 'unobservable');
+check('R-4 JSON-LD con maiuscole e spazi: riconosciuto (present, S3)', fam_of($r, 'jsonld')['availability'] === 'present' && $r['snap']->jsonLdAnalysis()['blocks'] === 1);
 
 $r = ok_page(page('<script type="text/javascript">var a = 1;</script>'));
 check('R-4 script di altro tipo: absent', fam_of($r, 'jsonld') === ['availability' => 'absent', 'value' => []]);
@@ -1006,6 +1012,121 @@ expect_state('M-4 risposta 206', $r, 'partial', 'partial_content', 1);
 check('M-4 canonical unobservable', fam_of($r, 'canonical')['availability'] === 'unobservable');
 check('M-4 robots unobservable', fam_of($r, 'robots')['availability'] === 'unobservable');
 check('M-4 jsonld unobservable', fam_of($r, 'jsonld')['availability'] === 'unobservable');
+
+// ---------------------------------------------------------------------------
+// S-004 · catena da ID: captureForPost -> estrazione -> JsonLdDiagnoser, fixture 07-09 e stati non idonei
+// ---------------------------------------------------------------------------
+
+/** Atteso doppio, indipendente dai dati catturati: restituisce lo snapshot della fixture. */
+final class OracleProvider implements ExpectedProvider
+{
+    /** @var ExpectedSnapshot */
+    private $snapshot;
+
+    public function __construct(ExpectedSnapshot $snapshot)
+    {
+        $this->snapshot = $snapshot;
+    }
+
+    public function forPost(int $postId): ExpectedSnapshot
+    {
+        return $this->snapshot;
+    }
+}
+
+/** Esiti JSON-LD della diagnosi su una cattura da ID, indicizzati per rule_id. */
+function jsonld_outcomes(array $run, ExpectedSnapshot $expected): array
+{
+    $byId = [];
+    if (!$run['snap'] instanceof ObservedSnapshot) {
+        return $byId;
+    }
+    foreach ((new JsonLdDiagnoser(new OracleProvider($expected)))->diagnose(1, $run['snap']) as $outcome) {
+        $byId[$outcome->ruleId()] = $outcome;
+    }
+    return $byId;
+}
+
+$jsonldRules = ['JSONLD_PARSE_ERROR', 'JSONLD_ENTITY_CONTRADICTION', 'JSONLD_EXPECTED_NODE_MISSING'];
+foreach (['07-jsonld-id-contradiction.json', '08-jsonld-equivalent-nodes.json', '09-jsonld-shared-reference.json'] as $name) {
+    $fixture = json_decode((string) file_get_contents(__DIR__ . '/fixtures/' . $name), true, 512, JSON_THROW_ON_ERROR);
+    $scan = $fixture['scans'][0];
+    $url = $scan['report']['observed_url'];
+    $label = 'S4 ' . $fixture['fixture_id'] . ' da ID';
+    $run = run_scan([
+        'permalinks' => [1 => $url],
+        'script' => [$url => [step(200, $scan['input']['html'], ['Content-Type' => 'text/html; charset=UTF-8'])]],
+    ]);
+    if ($run['error'] !== null) {
+        check($label, false, 'eccezione: ' . $run['error']);
+        continue;
+    }
+    check($label . ' cattura ok', $run['snap']->status() === 'ok', 'ottenuto ' . $run['snap']->status());
+    check($label . ' contratto violazioni', $run['violations'] === [], implode(';', $run['violations']));
+    $expected = new ExpectedSnapshot(['configured' => $scan['report']['expected']['configured'],
+        'resolved' => $scan['report']['expected']['resolved']]);
+    $byId = jsonld_outcomes($run, $expected);
+    check($label . ' tre esiti JSON-LD', array_keys($byId) === $jsonldRules);
+    $oracleFindings = array_values(array_filter($scan['report']['findings'], static function (array $f): bool {
+        return strpos($f['rule_id'], 'JSONLD_') === 0;
+    }));
+    $gotFindings = [];
+    foreach ($byId as $outcome) {
+        if ($outcome->finding() !== null) {
+            $gotFindings[] = $outcome->finding()->toArray();
+        }
+    }
+    check($label . ' finding === oracolo', $gotFindings === $oracleFindings, json_encode($gotFindings, JSON_UNESCAPED_SLASHES));
+    foreach ($scan['report']['rule_outcomes'] as $row) {
+        if (strpos($row['rule_id'], 'JSONLD_') !== 0) {
+            continue;
+        }
+        $got = $byId[$row['rule_id']] ?? null;
+        check($label . ' stato ' . $row['rule_id'], $got !== null && $got->state() === $row['state'], $got === null ? 'assente' : $got->state());
+        check($label . ' causa ' . $row['rule_id'], $got !== null && $got->causeState() === $row['cause_state']);
+    }
+}
+
+// Fixture 07 senza atteso (tutto unavailable): la contraddizione osservativa resta confermata, MISSING inconclusiva.
+$unavailable = ['availability' => 'unavailable', 'value' => null, 'source' => null];
+$noExpected = new ExpectedSnapshot(['configured' => ['canonical' => $unavailable, 'robots' => $unavailable, 'jsonld' => $unavailable],
+    'resolved' => ['canonical' => $unavailable, 'robots' => $unavailable, 'jsonld' => $unavailable]]);
+$f07 = json_decode((string) file_get_contents(__DIR__ . '/fixtures/07-jsonld-id-contradiction.json'), true, 512, JSON_THROW_ON_ERROR)['scans'][0];
+$url07 = $f07['report']['observed_url'];
+$run07 = run_scan([
+    'permalinks' => [1 => $url07],
+    'script' => [$url07 => [step(200, $f07['input']['html'], ['Content-Type' => 'text/html; charset=UTF-8'])]],
+]);
+check('S4 07 senza atteso da ID: cattura ok', $run07['error'] === null && $run07['snap']->status() === 'ok', $run07['error'] ?? $run07['snap']->status());
+$byId07 = jsonld_outcomes($run07, $noExpected);
+check('S4 07 senza atteso: PARSE no_anomaly', isset($byId07['JSONLD_PARSE_ERROR']) && $byId07['JSONLD_PARSE_ERROR']->state() === 'no_anomaly');
+check('S4 07 senza atteso: CONTRA confirmed_anomaly', isset($byId07['JSONLD_ENTITY_CONTRADICTION'])
+    && $byId07['JSONLD_ENTITY_CONTRADICTION']->state() === 'confirmed_anomaly');
+check('S4 07 senza atteso: finding con expected vuoto', isset($byId07['JSONLD_ENTITY_CONTRADICTION'])
+    && $byId07['JSONLD_ENTITY_CONTRADICTION']->finding() !== null
+    && $byId07['JSONLD_ENTITY_CONTRADICTION']->finding()->toArray()['expected'] === []);
+check('S4 07 senza atteso: MISSING inconclusive', isset($byId07['JSONLD_EXPECTED_NODE_MISSING'])
+    && $byId07['JSONLD_EXPECTED_NODE_MISSING']->state() === 'inconclusive');
+
+// Stati di cattura non idonei: nessuna prova JSON-LD, tre esiti not_tested. Atteso esplicito della fixture 07.
+$fixtureExpected = new ExpectedSnapshot(['configured' => $f07['report']['expected']['configured'],
+    'resolved' => $f07['report']['expected']['resolved']]);
+$blockedRun = run_scan(['posts' => [1 => post_obj('draft')]]);
+expect_state('S4 post non idoneo', $blockedRun, 'blocked', 'content_ineligible', 0);
+$blockedById = jsonld_outcomes($blockedRun, $fixtureExpected);
+foreach ($jsonldRules as $rule) {
+    check('S4 blocked: ' . $rule . ' not_tested', isset($blockedById[$rule]) && $blockedById[$rule]->state() === 'not_tested',
+        isset($blockedById[$rule]) ? $blockedById[$rule]->state() : 'assente');
+}
+$failedUrl = PERM1;
+$failedRun = run_scan(['script' => [$failedUrl => [['error' => ['http_request_failed', 'errore di trasporto']]]]]);
+check('S4 errore di trasporto: cattura failed', $failedRun['error'] === null && $failedRun['snap']->status() === 'failed',
+    $failedRun['error'] ?? $failedRun['snap']->status());
+$failedById = jsonld_outcomes($failedRun, $fixtureExpected);
+foreach ($jsonldRules as $rule) {
+    check('S4 failed: ' . $rule . ' not_tested', isset($failedById[$rule]) && $failedById[$rule]->state() === 'not_tested',
+        isset($failedById[$rule]) ? $failedById[$rule]->state() : 'assente');
+}
 
 if (is_dir($TEMP_DIR)) {
     @rmdir($TEMP_DIR);

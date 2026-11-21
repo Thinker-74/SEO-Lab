@@ -2,7 +2,8 @@
 
 /*
  * Sonda S2 su WordPress reale, eseguita dal container wordpress:cli con "wp eval-file" (tests/s2-wordpress.sh).
- * Legge le variabili S2_PHASE (no-yoast | yoast), S2_POST_ID e S2_PROBE_URL, non modifica contenuti o impostazioni
+ * Legge le variabili S2_PHASE (no-yoast | yoast | yoast-admin | schema-off-admin), S2_POST_ID e S2_PROBE_URL, non
+ * modifica contenuti o impostazioni
  * e stampa una riga JSON preceduta da "S2WP ". Il confronto con il frontend e' una sonda separata: la capture S1
  * rifiuta indirizzi privati, quindi la diagnosi da capture resta bloccata dal perimetro di rete della sandbox.
  */
@@ -26,6 +27,7 @@ spl_autoload_register(static function (string $class): void {
     }
 });
 
+use SeoLab\Capture\HtmlExtractor;
 use SeoLab\Capture\SafeHttpCapturer;
 use SeoLab\Capture\SystemAddressResolver;
 use SeoLab\Contracts\ExpectedSnapshot;
@@ -56,10 +58,16 @@ $phase = (string) getenv('S2_PHASE');
 $postId = (int) getenv('S2_POST_ID');
 $probeUrl = (string) getenv('S2_PROBE_URL');
 
-require_once ABSPATH . 'wp-admin/includes/admin.php';
+// Le fasi "-admin" bootstrappano con --context=admin; le altre restano non admin (nessuna schermata admin simulata).
+$adminPhase = substr($phase, -6) === '-admin';
+if ($adminPhase) {
+    require_once ABSPATH . 'wp-admin/includes/admin.php';
+}
 $admins = get_users(['role' => 'administrator', 'number' => 1, 'fields' => 'ID']);
 wp_set_current_user(is_array($admins) && $admins !== [] ? (int) $admins[0] : 1);
-set_current_screen('dashboard');
+if ($adminPhase) {
+    set_current_screen('dashboard');
+}
 
 $report = [
     'phase' => $phase,
@@ -75,6 +83,10 @@ $report = [
 $provider = new YoastExpectedProvider();
 $expected = $provider->forPost($postId);
 $report['expected_reason'] = $provider->lastReason();
+$report['jsonld_reason'] = $provider->lastJsonLdReason();
+$report['jsonld_guard'] = $provider->lastGuardEvidence();
+$report['permalink'] = get_permalink($postId);
+$report['watched_hooks'] = watched_hooks_summary();
 $report['expected_admin'] = snapshot_summary($expected);
 $report['expected_missing_id'] = snapshot_summary($provider->forPost(999999));
 
@@ -105,7 +117,7 @@ echo 'S2WP ' . json_encode($report, JSON_UNESCAPED_SLASHES) . "\n";
 function snapshot_summary(ExpectedSnapshot $snapshot): array
 {
     $out = [];
-    foreach (['canonical', 'robots'] as $family) {
+    foreach (['canonical', 'robots', 'jsonld'] as $family) {
         $value = $snapshot->resolved($family);
         $out[$family] = ['availability' => $value->availability(), 'value' => $value->value(), 'source' => $value->source()];
     }
@@ -141,5 +153,59 @@ function frontend_probe(string $url): array
             $robots[] = $meta->getAttribute('content');
         }
     }
-    return ['fetched' => true, 'url' => $url, 'canonical' => $canonical, 'robots' => $robots];
+    return ['fetched' => true, 'url' => $url, 'canonical' => $canonical, 'robots' => $robots, 'jsonld' => jsonld_probe($body, $url)];
+}
+
+/**
+ * JSON-LD del frontend letto con l'estrattore S3 (sola lettura): analisi completa e ID delle definizioni nel profilo.
+ * Nessuna inferenza: solo flag, codici e ID.
+ *
+ * @return array<string, mixed>
+ */
+function jsonld_probe(string $body, string $url): array
+{
+    $extracted = HtmlExtractor::extract($body, null, $url, true, []);
+    if (isset($extracted['error'])) {
+        return ['error' => (string) $extracted['error']];
+    }
+    $definitions = [];
+    foreach ($extracted['values']['jsonld']['value'] ?? [] as $node) {
+        if (($node['profile'] ?? false) === true && $node['id'] !== null) {
+            $definitions[] = $node['id'];
+        }
+    }
+    return ['analysis' => $extracted['jsonld_analysis'], 'definitions' => $definitions, 'availability' => $extracted['values']['jsonld']['availability']];
+}
+
+/**
+ * Hook controllati da S4 con i callback registrati (classe::metodo o funzione), in sola lettura.
+ *
+ * @return array<string, string[]>
+ */
+function watched_hooks_summary(): array
+{
+    $watched = ['wpseo_json_ld_output', 'wpseo_json_ld', 'wpseo_frontend_presenters', 'wpseo_frontend_presenter_classes',
+        'wpseo_frontend_presentation', 'wpseo_dynamic_permalinks_enabled'];
+    $out = [];
+    foreach ((array) ($GLOBALS['wp_filter'] ?? []) as $hook => $container) {
+        $hook = (string) $hook;
+        $isWatched = in_array($hook, $watched, true) || strpos($hook, 'wpseo_schema_') === 0 || strpos($hook, 'wpseo_pre_schema_block_type_') === 0;
+        if (!$isWatched || !is_object($container) || !isset($container->callbacks) || !is_array($container->callbacks)) {
+            continue;
+        }
+        foreach ($container->callbacks as $callbacks) {
+            foreach ((array) $callbacks as $callback) {
+                $function = $callback['function'] ?? null;
+                if (is_string($function)) {
+                    $id = $function;
+                } elseif (is_array($function) && count($function) === 2) {
+                    $id = (is_object($function[0]) ? get_class($function[0]) : (string) $function[0]) . '::' . (string) $function[1];
+                } else {
+                    $id = 'closure';
+                }
+                $out[$hook][] = $id;
+            }
+        }
+    }
+    return $out;
 }

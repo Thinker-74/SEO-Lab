@@ -14,6 +14,7 @@ spl_autoload_register(static function (string $class): void {
     $roots = [
         'SeoLab\\Contracts\\' => '/seolab/src/Contracts/',
         'SeoLab\\Expected\\' => '/seolab/src/Expected/',
+        'SeoLab\\Rules\\' => '/seolab/src/Rules/',
     ];
     foreach ($roots as $prefix => $dir) {
         if (strpos($class, $prefix) === 0) {
@@ -157,7 +158,7 @@ function s2_indexable_row(int $postId)
 function s2_snapshot_summary(\SeoLab\Contracts\ExpectedSnapshot $snapshot): array
 {
     $out = [];
-    foreach (['canonical', 'robots'] as $family) {
+    foreach (['canonical', 'robots', 'jsonld'] as $family) {
         $value = $snapshot->resolved($family);
         $out[$family] = ['availability' => $value->availability(), 'value' => $value->value(), 'source' => $value->source()];
     }
@@ -235,11 +236,11 @@ $provider = new YoastExpectedProvider();
 $windows = [];
 $windows['post'] = s2_measure($postId, static function () use ($provider, $postId): array {
     $snapshot = $provider->forPost($postId);
-    return ['reason' => $provider->lastReason()] + s2_snapshot_summary($snapshot);
+    return ['reason' => $provider->lastReason(), 'jsonld_reason' => $provider->lastJsonLdReason()] + s2_snapshot_summary($snapshot);
 });
 $windows['missing_id'] = s2_measure($postId, static function () use ($provider): array {
     $snapshot = $provider->forPost(S2_ABSENT_ID);
-    return ['reason' => $provider->lastReason()] + s2_snapshot_summary($snapshot);
+    return ['reason' => $provider->lastReason(), 'jsonld_reason' => $provider->lastJsonLdReason()] + s2_snapshot_summary($snapshot);
 });
 
 $report = [
@@ -247,6 +248,8 @@ $report = [
     'wp_version' => get_bloginfo('version'),
     'php_version' => PHP_VERSION,
     'yoast_version' => defined('WPSEO_VERSION') ? WPSEO_VERSION : null,
+    'is_admin' => is_admin(),
+    'permalink' => get_permalink($postId),
     'post_id' => $postId,
     'preconditions' => $pre,
     'control' => [

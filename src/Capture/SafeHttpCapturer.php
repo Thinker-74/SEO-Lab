@@ -294,6 +294,7 @@ final class SafeHttpCapturer implements ContentCapturer
             ],
             'observed_values' => $extracted['values'],
             'observed_positions' => $extracted['positions'],
+            'jsonld_analysis' => $extracted['jsonld_analysis'],
         ]);
     }
 

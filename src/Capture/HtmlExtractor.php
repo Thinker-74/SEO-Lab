@@ -7,7 +7,7 @@ namespace SeoLab\Capture;
 /**
  * Estrazione di canonical, robots e presenza di JSON-LD da un corpo HTML gia' limitato in dimensione.
  * Il DOM e' isolato: nessun caricamento di risorse esterne (LIBXML_NONET, nessuna opzione di entita'),
- * stato libxml ripristinato. Il contenuto JSON-LD non viene analizzato qui (fase S3).
+ * stato libxml ripristinato. Il JSON-LD e' analizzato da JsonLdExtractor (fase S3).
  */
 final class HtmlExtractor
 {
@@ -51,7 +51,7 @@ final class HtmlExtractor
             return ['error' => 'invalid_html'];
         }
 
-        return self::readDocument(new \DOMXPath($doc), $baseUrl, $xRobotsTag);
+        return self::readDocument(new \DOMXPath($doc), $baseUrl, $xRobotsTag, $copy);
     }
 
     /**
@@ -99,9 +99,10 @@ final class HtmlExtractor
 
     /**
      * @param string[] $xRobotsTag
+     * @param string   $raw        body UTF-8 senza BOM, base della corrispondenza degli script JSON-LD
      * @return array<string, mixed>
      */
-    private static function readDocument(\DOMXPath $xp, string $baseUrl, array $xRobotsTag): array
+    private static function readDocument(\DOMXPath $xp, string $baseUrl, array $xRobotsTag, string $raw): array
     {
         // Base: primo base[href] del DOM fuori dai template, risolto contro l'URL finale. Non attiva richieste.
         $documentBase = $baseUrl;
@@ -173,29 +174,19 @@ final class HtmlExtractor
             $robotsPositions[] = 'http_header';
         }
 
-        // JSON-LD: solo presenza. Il contenuto e' differito a S3, quindi con script l'osservazione e' unobservable.
-        // Candidato riconosciuto dall'essenza del MIME, prima di ';', senza distinguere maiuscole e spazi.
-        $jsonLdCount = 0;
-        $scripts = $xp->query('//script[not(ancestor::template)]');
-        foreach ($scripts as $node) {
-            $essence = strtolower(trim(explode(';', $node->getAttribute('type'))[0]));
-            if ($essence === 'application/ld+json') {
-                $jsonLdCount++;
-            }
-        }
+        // JSON-LD: blocchi attivi analizzati da JsonLdExtractor (S3).
+        $jsonLd = JsonLdExtractor::analyze($raw, $xp);
 
         $canonicalFamily = self::family($canonical, $canonicalAmbiguous);
         $robotsFamily = self::family($robots, $robotsAmbiguous);
-        $jsonLdFamily = $jsonLdCount > 0
-            ? ['availability' => 'unobservable', 'value' => null]
-            : ['availability' => 'absent', 'value' => []];
 
         return [
-            'values' => ['canonical' => $canonicalFamily, 'robots' => $robotsFamily, 'jsonld' => $jsonLdFamily],
+            'values' => ['canonical' => $canonicalFamily, 'robots' => $robotsFamily, 'jsonld' => $jsonLd['value']],
             'positions' => [
                 'canonical' => $canonicalFamily['availability'] === 'present' ? $canonicalPositions : [],
                 'robots' => $robotsFamily['availability'] === 'present' ? $robotsPositions : [],
             ],
+            'jsonld_analysis' => $jsonLd['analysis'],
         ];
     }
 

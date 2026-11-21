@@ -77,6 +77,25 @@ if (strpos($phase, 'window-') === 0) {
             && ($post['robots']['availability'] ?? null) === 'unavailable');
     }
     $check('versione Yoast verificata', ($data['yoast_version'] ?? null) === ($state === 'no-yoast' ? null : '28.9'));
+    // S4: JSON-LD atteso. Solo nel contesto admin con indexable corrente e' disponibile, con ID uguale al permalink.
+    $jsonldPost = $post['jsonld'] ?? [];
+    $jsonldMissingId = $missingId['jsonld'] ?? [];
+    $check('JSON-LD ID inesistente: unavailable', ($jsonldMissingId['availability'] ?? null) === 'unavailable');
+    if (($data['is_admin'] ?? false) === true) {
+        if ($state === 'current') {
+            $check('S4 admin, indexable corrente: JSON-LD available con source yoast:resolved',
+                ($jsonldPost['availability'] ?? null) === 'available' && ($jsonldPost['source'] ?? null) === 'yoast:resolved',
+                json_encode($jsonldPost));
+            $check('S4 admin, indexable corrente: ID JSON-LD uguale al permalink',
+                ($jsonldPost['value']['expected_node_ids'] ?? null) === [$data['permalink'] ?? null],
+                json_encode($jsonldPost['value'] ?? null) . ' permalink=' . json_encode($data['permalink'] ?? null));
+            $check('S4 admin, indexable corrente: motivo ok', ($post['jsonld_reason'] ?? null) === 'ok', (string) ($post['jsonld_reason'] ?? 'nessuno'));
+        } else {
+            $check('S4 admin, stato ' . $state . ': JSON-LD unavailable', ($jsonldPost['availability'] ?? null) === 'unavailable');
+        }
+    } else {
+        $check('S4 CLI non admin, stato ' . $state . ': JSON-LD unavailable', ($jsonldPost['availability'] ?? null) === 'unavailable');
+    }
     echo 'Fase: ' . $phase . ' · WP ' . ($data['wp_version'] ?? '?') . ' · PHP ' . ($data['php_version'] ?? '?')
         . ' · Yoast ' . ($data['yoast_version'] ?? 'assente') . ' · motivo post ' . ($post['reason'] ?? '?')
         . ' · scritture SQL ' . ($data['windows']['post']['mutating_statements'] ?? '?')
@@ -89,7 +108,12 @@ if (strpos($phase, 'window-') === 0) {
     exit($failures === [] ? 0 : 1);
 }
 $admin = $data['expected_admin'] ?? [];
-$check('contesto admin WordPress', ($data['admin_context'] ?? false) === true && ($data['user_can_manage_options'] ?? false) === true);
+$check('utente con permessi di gestione', ($data['user_can_manage_options'] ?? false) === true);
+if (substr($phase, -6) === '-admin') {
+    $check('contesto admin WordPress (fase admin)', ($data['admin_context'] ?? false) === true);
+} else {
+    $check('contesto non admin (fase CLI senza --context=admin)', ($data['admin_context'] ?? true) === false, 'is_admin=' . json_encode($data['admin_context'] ?? null));
+}
 $check('provider: ID inesistente non produce atteso', ($data['expected_missing_id']['canonical']['availability'] ?? null) === 'unavailable'
     && ($data['expected_missing_id']['robots']['availability'] ?? null) === 'unavailable');
 $check('capture: host di origine privato respinto da S1', ($data['capture']['status'] ?? null) === 'blocked'
@@ -102,10 +126,26 @@ if ($phase === 'no-yoast') {
     foreach (($data['outcomes'] ?? []) as $rule => $state) {
         $check('senza Yoast: nessuna anomalia confermata ' . $rule, $state !== 'confirmed_anomaly');
     }
-} elseif ($phase === 'yoast') {
+} elseif ($phase === 'yoast' || $phase === 'yoast-admin') {
     $check('con Yoast: function YoastSEO presente', ($data['yoast_function'] ?? false) === true);
     $check('con Yoast: canonical available', ($admin['canonical']['availability'] ?? null) === 'available');
     $check('con Yoast: robots available', ($admin['robots']['availability'] ?? null) === 'available');
+    if ($phase === 'yoast') {
+        $check('S4 CLI non admin: JSON-LD unavailable con motivo context_not_admin',
+            ($admin['jsonld']['availability'] ?? null) === 'unavailable' && ($data['jsonld_reason'] ?? null) === 'context_not_admin',
+            (string) ($data['jsonld_reason'] ?? ''));
+    } else {
+        $check('S4 admin: contesto WordPress admin', ($data['admin_context'] ?? false) === true);
+        $check('S4 admin: JSON-LD available con source yoast:resolved',
+            ($admin['jsonld']['availability'] ?? null) === 'available' && ($admin['jsonld']['source'] ?? null) === 'yoast:resolved',
+            json_encode($admin['jsonld'] ?? null));
+        $check('S4 admin: motivo ok e nessuna guardia dei callback scattata',
+            ($data['jsonld_reason'] ?? null) === 'ok' && ($data['jsonld_guard'] ?? null) === null,
+            (string) ($data['jsonld_reason'] ?? '') . ' guardia=' . (string) ($data['jsonld_guard'] ?? 'nessuna'));
+        $check('S4 admin: ID JSON-LD uguale al permalink',
+            ($admin['jsonld']['value']['expected_node_ids'] ?? null) === [$data['permalink'] ?? null],
+            json_encode($admin['jsonld']['value'] ?? null) . ' permalink=' . json_encode($data['permalink'] ?? null));
+    }
     $frontend = $data['frontend'] ?? null;
     $check('frontend richiesto dalla sonda', is_array($frontend) && ($frontend['fetched'] ?? false) === true);
     if (is_array($frontend) && ($frontend['fetched'] ?? false) === true) {
@@ -121,8 +161,34 @@ if ($phase === 'no-yoast') {
         $check('robots admin e frontend uguali', $adminRobots === $frontendRobots,
             'admin=' . json_encode($adminRobots) . ' frontend=' . json_encode($frontendRobots));
     }
+    if ($phase === 'yoast-admin') {
+        $jsonld = is_array($data['frontend'] ?? null) ? ($data['frontend']['jsonld'] ?? null) : null;
+        $expectedId = $admin['jsonld']['value']['expected_node_ids'][0] ?? null;
+        $check('S4 frontend: JSON-LD letto e analizzato', is_array($jsonld) && isset($jsonld['analysis']));
+        if (is_array($jsonld) && isset($jsonld['analysis'])) {
+            $analysis = $jsonld['analysis'];
+            $check('S4 frontend: sintassi, inventario e profilo completi senza errori',
+                ($analysis['syntax_complete'] ?? null) === true && ($analysis['inventory_complete'] ?? null) === true
+                && ($analysis['profile_complete'] ?? null) === true && ($analysis['errors'] ?? ['x']) === [],
+                json_encode($analysis));
+        }
+        $check('S4 frontend: ID atteso definito nel frontend dello stesso post',
+            is_string($expectedId) && in_array($expectedId, $jsonld['definitions'] ?? [], true),
+            'atteso=' . json_encode($expectedId) . ' definizioni=' . json_encode($jsonld['definitions'] ?? null));
+        $check('S4 admin: nessun hook Yoast controllato registrato (watched_hooks vuoto)',
+            ($data['watched_hooks'] ?? null) === [], json_encode($data['watched_hooks'] ?? null));
+        echo 'Hook Yoast controllati (registro admin): ' . json_encode($data['watched_hooks'] ?? []) . "\n";
+    }
+} elseif ($phase === 'schema-off-admin') {
+    $check('S4 enable_schema=false in admin: JSON-LD unavailable', ($admin['jsonld']['availability'] ?? null) === 'unavailable');
+    $check('S4 enable_schema=false in admin: motivo schema_disabled', ($data['jsonld_reason'] ?? null) === 'schema_disabled',
+        (string) ($data['jsonld_reason'] ?? ''));
+    $check('S4 enable_schema=false: canonical e robots restano available', ($admin['canonical']['availability'] ?? null) === 'available'
+        && ($admin['robots']['availability'] ?? null) === 'available');
+    $check('S4 enable_schema=false in admin: nessun hook Yoast controllato registrato (watched_hooks vuoto)',
+        ($data['watched_hooks'] ?? null) === [], json_encode($data['watched_hooks'] ?? null));
 } else {
-    $check('fase nota (no-yoast o yoast)', false, $phase);
+    $check('fase nota (no-yoast, yoast, yoast-admin o schema-off-admin)', false, $phase);
 }
 
 echo 'Fase: ' . $phase . ' · WP ' . ($data['wp_version'] ?? '?') . ' · PHP ' . ($data['php_version'] ?? '?')

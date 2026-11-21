@@ -18,6 +18,12 @@ final class ObservedSnapshot
     private const CACHE_HEADERS = ['age', 'etag', 'vary'];
     private const CACHE_VALUE_MAX = 256;
     private const POSITIONS_HEAD = ['head', 'outside_head'];
+    private const JSONLD_ERRORS_MAX = 16;
+    private const JSONLD_NODES_MAX = 256;
+    private const JSONLD_CODES = [
+        'JSON_SYNTAX', 'JSON_DEPTH_LIMIT', 'JSON_UNINTERPRETABLE', 'JSON_EMPTY', 'JSON_UNMAPPED', 'NODE_ID_INVALID',
+        'BUDGET_SCRIPTS', 'BUDGET_SCRIPT_BYTES', 'BUDGET_TOTAL_BYTES', 'BUDGET_NODES', 'JSONLD_KEYWORD_UNSUPPORTED',
+    ];
 
     /** @var string */
     private $status;
@@ -57,6 +63,9 @@ final class ObservedSnapshot
 
     /** @var ObservedValue[] */
     private $values;
+
+    /** @var array<string, mixed>|null */
+    private $jsonLdAnalysis;
 
     /**
      * @param array<string, mixed> $data chiavi: capture_status, requested_url, observed_url, captured_at_utc, http, observed_values
@@ -167,6 +176,13 @@ final class ObservedSnapshot
         $this->redirects = ValueCopy::detach($redirects, 'http.redirects');
         $this->xRobotsTag = ValueCopy::detach($xRobotsTag, 'http.x_robots_tag');
         $this->values = $values;
+        $this->jsonLdAnalysis = null;
+        if (array_key_exists('jsonld_analysis', $data) && $data['jsonld_analysis'] !== null) {
+            if (!in_array($status, [States::SCAN_OK, States::SCAN_PARTIAL], true)) {
+                throw new \InvalidArgumentException('jsonld_analysis senza capture ok o partial');
+            }
+            $this->jsonLdAnalysis = self::normalizeAnalysis($data['jsonld_analysis']);
+        }
     }
 
     public function status(): string
@@ -223,7 +239,21 @@ final class ObservedSnapshot
         if ($this->positions !== null) {
             $out['observed_positions'] = $this->positions;
         }
+        if ($this->jsonLdAnalysis !== null) {
+            $out['jsonld_analysis'] = $this->jsonLdAnalysis;
+        }
         return $out;
+    }
+
+    /**
+     * Analisi JSON-LD della capture (S3): completezza di sintassi, inventario e profilo, errori limitati con
+     * codice stabile e locator, riferimenti. Null per snapshot storici senza analisi: stato sconosciuto.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function jsonLdAnalysis(): ?array
+    {
+        return $this->jsonLdAnalysis;
     }
 
     public function requestedUrl(): ?string
@@ -368,6 +398,48 @@ final class ObservedSnapshot
     /**
      * @param mixed $value
      */
+    /**
+     * Valida l'analisi JSON-LD (S3): nessun contenuto grezzo, solo flag, codici stabili, indici, locator e riferimenti.
+     *
+     * @param mixed $analysis
+     * @return array<string, mixed>
+     */
+    private static function normalizeAnalysis($analysis): array
+    {
+        $keys = ['blocks', 'errors', 'inventory_complete', 'profile_complete', 'reference_ids', 'syntax_complete'];
+        if (!is_array($analysis) || count($analysis) !== count($keys) || array_diff(array_keys($analysis), $keys) !== []) {
+            throw new \InvalidArgumentException('jsonld_analysis: chiavi attese ' . implode(', ', $keys));
+        }
+        foreach (['syntax_complete', 'inventory_complete', 'profile_complete'] as $flag) {
+            if (!is_bool($analysis[$flag])) {
+                throw new \InvalidArgumentException('jsonld_analysis.' . $flag . ' deve essere booleano');
+            }
+        }
+        if (!is_int($analysis['blocks']) || $analysis['blocks'] < 0) {
+            throw new \InvalidArgumentException('jsonld_analysis.blocks deve essere intero non negativo');
+        }
+        if (!ValueCopy::isList($analysis['errors']) || count($analysis['errors']) > self::JSONLD_ERRORS_MAX) {
+            throw new \InvalidArgumentException('jsonld_analysis.errors deve essere una lista limitata');
+        }
+        foreach ($analysis['errors'] as $error) {
+            if (!is_array($error) || count($error) !== 3 || array_diff(array_keys($error), ['code', 'index', 'locator']) !== []
+                || !is_string($error['code']) || !in_array($error['code'], self::JSONLD_CODES, true)
+                || !is_int($error['index']) || $error['index'] < 1
+                || $error['locator'] !== 'script[' . $error['index'] . ']') {
+                throw new \InvalidArgumentException('jsonld_analysis.errors: codice stabile, indice o locator non validi');
+            }
+        }
+        if (!ValueCopy::isList($analysis['reference_ids']) || count($analysis['reference_ids']) > self::JSONLD_NODES_MAX) {
+            throw new \InvalidArgumentException('jsonld_analysis.reference_ids deve essere una lista limitata');
+        }
+        foreach ($analysis['reference_ids'] as $id) {
+            if (!is_string($id) || $id === '') {
+                throw new \InvalidArgumentException('jsonld_analysis.reference_ids: valore non stringa');
+            }
+        }
+        return ValueCopy::detach($analysis, 'jsonld_analysis');
+    }
+
     private static function assertUrl($value, string $field): void
     {
         if (!is_string($value) || !preg_match(self::URL_PATTERN, $value)) {

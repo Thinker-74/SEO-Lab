@@ -49,6 +49,10 @@ cleanup() {
     if [ -n "$ids" ]; then
         printf '%s\n' "$ids" | xargs docker volume rm >/dev/null || clean_failed=1
     fi
+    # Output grezzi delle fasi copiati prima della rimozione della sandbox: restano anche se lo script esce prima.
+    if [ -d "${OUT_DIR:-/nonexistente}" ]; then
+        mkdir -p "$ROOT/.ai/20_execution/s2-wp-out" && cp -a "$OUT_DIR/." "$ROOT/.ai/20_execution/s2-wp-out/" || clean_failed=1
+    fi
     "$AI_BUS" sandbox clean --id "$SID" >/dev/null || clean_failed=1
     if [ -e "$SANDBOX" ]; then
         echo "sandbox ancora presente dopo la pulizia: $SANDBOX" >&2
@@ -75,12 +79,12 @@ DB_ROOT="$(openssl rand -hex 16)"
 ADMIN_PASS="$(openssl rand -hex 16)"
 
 docker network create --internal --label "ai-bus.sandbox=$SID" "$NET" >/dev/null
-docker run -d --name "$DB_NAME" --network "$NET" --network-alias seolab-db --label "ai-bus.sandbox=$SID" \
+docker run -d --pull never --name "$DB_NAME" --network "$NET" --network-alias seolab-db --label "ai-bus.sandbox=$SID" \
     --tmpfs /var/lib/mysql \
     -e MARIADB_DATABASE=wp -e MARIADB_USER=wp -e MARIADB_PASSWORD="$DB_PASS" -e MARIADB_ROOT_PASSWORD="$DB_ROOT" \
     "$DB_IMG" >/dev/null
 docker volume create --label "ai-bus.sandbox=$SID" "$VOL" >/dev/null
-docker run -d --name "$WEB_NAME" --network "$NET" --network-alias "$SITE_HOST" --label "ai-bus.sandbox=$SID" \
+docker run -d --pull never --name "$WEB_NAME" --network "$NET" --network-alias "$SITE_HOST" --label "ai-bus.sandbox=$SID" \
     -v "$VOL:/var/www/html" \
     -e WORDPRESS_DB_HOST=seolab-db -e WORDPRESS_DB_NAME=wp -e WORDPRESS_DB_USER=wp -e WORDPRESS_DB_PASSWORD="$DB_PASS" \
     -e WP_ENVIRONMENT_TYPE=production \
@@ -102,7 +106,7 @@ wait_for docker exec -e MYSQL_PWD="$DB_PASS" "$DB_NAME" mariadb -uwp wp -e 'SELE
 wait_for docker exec "$WEB_NAME" test -f /var/www/html/wp-config.php
 
 wpcli() {
-    docker run --rm --network "$NET" --label "ai-bus.sandbox=$SID" --user 33:33 \
+    docker run --rm --pull never --network "$NET" --label "ai-bus.sandbox=$SID" --user 33:33 \
         -v "$VOL:/var/www/html" \
         -v "$SANDBOX/yoast:/yoast:ro" \
         -v "$ROOT/src:/seolab/src:ro" \
@@ -159,8 +163,28 @@ S2_PHASE=yoast S2_POST_ID="$POST_ID" S2_PROBE_URL="http://$SITE_HOST/?p=$POST_ID
 echo "--- fase con Yoast: admin e frontend ---"
 php "$ROOT/tests/s2-wp-compare.php" "$OUT_DIR/check-yoast.txt" || FAILED=1
 
-# Fase 4: indexable obsoleto. Preparazione fuori dalla finestra, dopo le misure corrente e admin/frontend.
-S2_POST_ID="$POST_ID" wpcli eval 'global $wpdb; exit($wpdb->query($wpdb->prepare("UPDATE {$wpdb->prefix}yoast_indexable SET version = %d WHERE object_id = %d AND object_type = %s", 0, (int) getenv("S2_POST_ID"), "post")) === 1 ? 0 : 1);'
+# Fase 4 (S4): contesto admin con indexable corrente. Finestra misurata e JSON-LD letto dentro la finestra.
+S2_STATE=current S2_POST_ID="$POST_ID" \
+    wpcli --context=admin eval-file /seolab/tests/s2-wp-window.php > "$OUT_DIR/window-current-admin.txt" 2>&1 || true
+echo "--- finestra: indexable corrente, contesto admin ---"
+php "$ROOT/tests/s2-wp-compare.php" "$OUT_DIR/window-current-admin.txt" || FAILED=1
+
+# Fase 4b (S4): admin e frontend dello stesso post, sonda fuori dalla finestra provider.
+S2_PHASE=yoast-admin S2_POST_ID="$POST_ID" S2_PROBE_URL="http://$SITE_HOST/?p=$POST_ID" \
+    wpcli --context=admin eval-file /seolab/tests/s2-wp-check.php > "$OUT_DIR/check-yoast-admin.txt" 2>&1 || true
+echo "--- fase con Yoast: admin, JSON-LD e frontend ---"
+php "$ROOT/tests/s2-wp-compare.php" "$OUT_DIR/check-yoast-admin.txt" || FAILED=1
+
+# Fase 4c (S4): enable_schema=false in admin. Preparazione e ripristino fuori dalle finestre misurate.
+S2_POST_ID="$POST_ID" wpcli --context=admin eval 'YoastSEO()->helpers->options->set("enable_schema", false); exit(YoastSEO()->helpers->options->get("enable_schema", true) === false ? 0 : 1);' || FAILED=1
+S2_PHASE=schema-off-admin S2_POST_ID="$POST_ID" S2_PROBE_URL='' \
+    wpcli --context=admin eval-file /seolab/tests/s2-wp-check.php > "$OUT_DIR/check-schema-off-admin.txt" 2>&1 || true
+echo "--- fase con schema disattivato in admin ---"
+php "$ROOT/tests/s2-wp-compare.php" "$OUT_DIR/check-schema-off-admin.txt" || FAILED=1
+wpcli --context=admin eval 'YoastSEO()->helpers->options->set("enable_schema", true); exit(YoastSEO()->helpers->options->get("enable_schema", true) === true ? 0 : 1);' || FAILED=1
+
+# Fase 5: indexable obsoleto. Preparazione fuori dalla finestra, dopo le misure corrente e admin/frontend.
+S2_POST_ID="$POST_ID" wpcli eval 'global $wpdb; exit($wpdb->query($wpdb->prepare("UPDATE {$wpdb->prefix}yoast_indexable SET version = %d WHERE object_id = %d AND object_type = %s", 0, (int) getenv("S2_POST_ID"), "post")) === 1 ? 0 : 1);' || FAILED=1
 S2_STATE=obsolete S2_POST_ID="$POST_ID" \
     wpcli eval-file /seolab/tests/s2-wp-window.php > "$OUT_DIR/window-obsolete.txt" 2>&1 || true
 echo "--- finestra: indexable obsoleto ---"
@@ -168,7 +192,7 @@ php "$ROOT/tests/s2-wp-compare.php" "$OUT_DIR/window-obsolete.txt" || FAILED=1
 
 EVIDENCE="$ROOT/.ai/20_execution"
 mkdir -p "$EVIDENCE"
-for name in check-no-yoast window-no-yoast window-missing window-current check-yoast window-obsolete; do
+for name in check-no-yoast window-no-yoast window-missing window-current check-yoast window-current-admin check-yoast-admin check-schema-off-admin window-obsolete; do
     cp "$OUT_DIR/$name.txt" "$EVIDENCE/s2-wp-$name-output.txt"
 done
 echo "Output grezzi copiati in $EVIDENCE"

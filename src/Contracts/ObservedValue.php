@@ -13,6 +13,7 @@ final class ObservedValue
 {
     private const URL_PATTERN = '#^https?://[^\s]+\z#';
     private const ROBOTS_SOURCES = ['meta', 'header'];
+    private const URL_STATES = ['none', 'scalar', 'ambiguous'];
 
     /** @var string */
     private $family;
@@ -49,7 +50,8 @@ final class ObservedValue
                 throw new \InvalidArgumentException($family . ': availability absent richiede value lista vuota');
             }
         } else {
-            if (!ValueCopy::isList($value) || $value === []) {
+            // JSON-LD: un blocco valido senza definizioni ({} o []) e' present con lista vuota (S3).
+            if (!ValueCopy::isList($value) || ($value === [] && $family !== 'jsonld')) {
                 throw new \InvalidArgumentException($family . ': availability present richiede value lista non vuota');
             }
             foreach ($value as $item) {
@@ -110,6 +112,23 @@ final class ObservedValue
         if (!is_array($item) || !array_key_exists('id', $item) || !($item['id'] === null || (is_string($item['id']) && $item['id'] !== ''))
             || !ValueCopy::isList($item['types'] ?? null) || !is_int($item['script'] ?? null) || $item['script'] < 1) {
             throw new \InvalidArgumentException('jsonld: nodo osservato richiede id (stringa o null), types (lista) e script (intero >= 1)');
+        }
+        // Campi opzionali S3: locator, profile, url_state e url (solo per url scalare).
+        if (array_key_exists('locator', $item) && (!is_string($item['locator']) || $item['locator'] === '')) {
+            throw new \InvalidArgumentException('jsonld: locator deve essere stringa non vuota');
+        }
+        if (array_key_exists('profile', $item) && !is_bool($item['profile'])) {
+            throw new \InvalidArgumentException('jsonld: profile deve essere booleano');
+        }
+        $urlState = $item['url_state'] ?? 'none';
+        if (!in_array($urlState, self::URL_STATES, true)) {
+            throw new \InvalidArgumentException('jsonld: url_state fuori enum');
+        }
+        if (($urlState === 'scalar') !== array_key_exists('url', $item)) {
+            throw new \InvalidArgumentException('jsonld: url presente solo con url_state scalar');
+        }
+        if ($urlState === 'scalar' && !is_string($item['url'])) {
+            throw new \InvalidArgumentException('jsonld: url scalare deve essere stringa');
         }
     }
 }
