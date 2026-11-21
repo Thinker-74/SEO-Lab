@@ -1,8 +1,12 @@
-# SEO Lab
+# SEO Lab - The SEO Output Debugger for WordPress
 
-Plugin WordPress in sola lettura che confronta i dati SEO attesi di una pagina (valori risolti da Yoast SEO) con l'output pubblico che il sito serve davvero, e segnala le differenze con evidenza, causa probabile e istruzioni per verificarle.
+Stop guessing. Start tracing.
 
-> Nome di sviluppo: SEO Lab. Il nome commerciale non è ancora stato scelto.
+Find the conflict. Test the cause. Verify the fix.
+
+Plugin WordPress in sola lettura che confronta i dati SEO attesi di una pagina (valori risolti da Yoast SEO) con l'output pubblico che il sito serve davvero, e segnala le differenze con evidenza, stato della causa (confermata, probabile, possibile o sconosciuta) e istruzioni per verificarle.
+
+> SEO Lab è il nome attuale del progetto. Il nome commerciale sarà scelto prima della pubblicazione su WordPress.org; repository, codice e documenti non vengono rinominati fino ad allora.
 > Stato: P0 in validazione (versione 0.2.0). Non è ancora una release stabile: vedi [docs/compatibility.md](docs/compatibility.md) per le versioni provate e i limiti.
 
 ## Cosa controlla

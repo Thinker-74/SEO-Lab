@@ -28,11 +28,20 @@ Limiti della misura: il braccio manuale è uno script e non una persona; il brac
 
 Da eseguire con i casi 02, 05 e 07, a coppie, con ordine bilanciato: alternare il metodo di partenza (manuale poi plugin, plugin poi manuale).
 
-1. Predisporre per ogni caso pagina o header salvati e il valore atteso Yoast, senza indicare la soluzione.
+Operatore: preferibilmente un consulente SEO tecnico o uno sviluppatore WordPress esterno a SEO Lab. Chi ha sviluppato SEO Lab può provare internamente la procedura, ma il suo coinvolgimento è una possibile fonte di bias e non va contato come prova indipendente.
+
+Condizioni: stesse condizioni e ambienti equivalenti nei due metodi; stessa finestra di misurazione; nessuna anticipazione all'operatore su anomalie attese.
+
+1. Predisporre per ogni caso, in forma anonima, pagina o header salvati e il valore atteso Yoast. Le risposte, le anomalie previste e i criteri d'oracolo restano riservati al valutatore e non sono visibili all'operatore.
 2. Cronometrare dall'inizio della verifica fino alla conclusione: stato, prova e passo di verifica successivo.
 3. Metodo manuale: pagina e header, dato atteso, nessun motore.
 4. Metodo plugin: Scan e report nell'admin di SEO Lab.
 5. Registrare tutti gli esiti, anche errori o tempi incompleti.
-6. Calcolare la mediana per metodo e applicare la formula sopra.
+6. Registrare per ogni caso: anomalie trovate, falsi positivi, qualità delle evidenze (fonte e posizione, reperibilità) e verifica della correzione.
+7. Calcolare la mediana per metodo e applicare la formula sopra.
+
+L'accuratezza precede la velocità: un tempo ridotto con anomalie mancate o falsi positivi non conta come riduzione.
+
+Pilota: tre casi con una persona costituiscono un pilota. La dicitura «-50% nel benchmark pilota» è ammessa solo con prova umana documentata, campione, condizioni e riduzione misurata che raggiunge il target. Non si fanno proiezioni universali. Senza prova umana il target resta «non valutabile». Il pilota è facoltativo e non condiziona il rilascio P0.
 
 Il target è raggiunto solo se la riduzione umana è pari o superiore al 50%.
