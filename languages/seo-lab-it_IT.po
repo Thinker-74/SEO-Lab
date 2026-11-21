@@ -1,0 +1,254 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: SEO Lab\n"
+"Language: it_IT\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+msgid "You are not allowed to access this page."
+msgstr "Non hai i permessi per accedere a questa pagina."
+
+msgid "SEO Lab"
+msgstr "SEO Lab"
+
+msgid "Scans read the public page and the expected values of Yoast. Nothing on the site is changed."
+msgstr "Le scansioni leggono la pagina pubblica e i valori attesi di Yoast. Il sito non viene modificato."
+
+msgid "Report storage is not available on this site."
+msgstr "L'archivio dei report non è disponibile su questo sito."
+
+msgid "Content"
+msgstr "Contenuto"
+
+msgid "Latest report"
+msgstr "Ultimo report"
+
+msgid "Scan"
+msgstr "Scansiona"
+
+msgid "Open"
+msgstr "Apri"
+
+msgid "None"
+msgstr "Nessuno"
+
+msgid "Back to contents"
+msgstr "Torna ai contenuti"
+
+msgid "Report not found."
+msgstr "Report non trovato."
+
+msgid "Comparison not available: the base report is no longer stored."
+msgstr "Confronto non disponibile: il report di base non è più archiviato."
+
+msgid "Verify again"
+msgstr "Verifica di nuovo"
+
+msgid "Export JSON"
+msgstr "Esporta JSON"
+
+msgid "Comparison"
+msgstr "Confronto"
+
+msgid "Base report"
+msgstr "Report di base"
+
+msgid "New report"
+msgstr "Nuovo report"
+
+msgid "Rule"
+msgstr "Regola"
+
+msgid "Difference"
+msgstr "Differenza"
+
+msgid "Resolved"
+msgstr "Risolto"
+
+msgid "Persists"
+msgstr "Persiste"
+
+msgid "Changed"
+msgstr "Cambiato"
+
+msgid "Inconclusive"
+msgstr "Non conclusivo"
+
+msgid "This action accepts only POST requests."
+msgstr "Questa azione accetta solo richieste POST."
+
+msgid "You are not allowed to run this action."
+msgstr "Non hai i permessi per eseguire questa azione."
+
+msgid "The security check failed. Reload the page and try again."
+msgstr "Il controllo di sicurezza non è riuscito. Ricarica la pagina e riprova."
+
+msgid "This content cannot be scanned: only published public posts and pages without password can be scanned."
+msgstr "Questo contenuto non può essere scansionato: sono ammessi solo articoli e pagine pubblicati, pubblici e senza password."
+
+msgid "A scan of this site ran a few seconds ago. Try again in a moment."
+msgstr "Una scansione di questo sito è stata eseguita pochi secondi fa. Riprova tra poco."
+
+msgid "The report could not be saved. Nothing was stored."
+msgstr "Il report non è stato salvato. Non è stato archiviato nulla."
+
+msgid "The request is not valid."
+msgstr "La richiesta non è valida."
+
+msgid "Scan report"
+msgstr "Report di scansione"
+
+msgid "Report ID"
+msgstr "ID report"
+
+msgid "Post ID"
+msgstr "ID contenuto"
+
+msgid "Captured at (UTC)"
+msgstr "Acquisito il (UTC)"
+
+msgid "Requested URL"
+msgstr "URL richiesto"
+
+msgid "Observed URL"
+msgstr "URL osservato"
+
+msgid "Capture status"
+msgstr "Stato della cattura"
+
+msgid "Observation point"
+msgstr "Punto di osservazione"
+
+msgid "Public HTML fetched by the server, no cookies or credentials"
+msgstr "HTML pubblico recuperato dal server, senza cookie o credenziali"
+
+msgid "Yoast version"
+msgstr "Versione di Yoast"
+
+msgid "The public page could not be captured, so this scan does not confirm or exclude anomalies."
+msgstr "La pagina pubblica non è stata acquisita: questa scansione non conferma né esclude anomalie."
+
+msgid "This report shows what the public page exposed at capture time. Check the public excerpts before exporting it."
+msgstr "Questo report mostra ciò che la pagina pubblica esponeva al momento della cattura. Controlla gli estratti pubblici prima di esportarlo."
+
+msgid "Expected"
+msgstr "Atteso"
+
+msgid "Observed"
+msgstr "Osservato"
+
+msgid "Expected and observed"
+msgstr "Atteso e osservato"
+
+msgid "Rules"
+msgstr "Regole"
+
+msgid "Version"
+msgstr "Versione"
+
+msgid "State"
+msgstr "Stato"
+
+msgid "Cause"
+msgstr "Causa"
+
+msgid "Findings"
+msgstr "Riscontri"
+
+msgid "No confirmed anomaly in this scan."
+msgstr "Nessuna anomalia confermata in questa scansione."
+
+msgid "Severity"
+msgstr "Severità"
+
+msgid "Evidence"
+msgstr "Prova"
+
+msgid "Next test"
+msgstr "Prossimo test"
+
+msgid "Verification method"
+msgstr "Metodo di verifica"
+
+msgid "Captured"
+msgstr "Acquisita"
+
+msgid "Partially captured"
+msgstr "Acquisita parzialmente"
+
+msgid "Blocked before fetching"
+msgstr "Bloccata prima del recupero"
+
+msgid "Failed"
+msgstr "Non riuscita"
+
+msgid "Confirmed anomaly"
+msgstr "Anomalia confermata"
+
+msgid "No anomaly"
+msgstr "Nessuna anomalia"
+
+msgid "Not tested"
+msgstr "Non verificato"
+
+msgid "Confirmed"
+msgstr "Confermata"
+
+msgid "Likely"
+msgstr "Probabile"
+
+msgid "Possible"
+msgstr "Possibile"
+
+msgid "Unknown"
+msgstr "Sconosciuta"
+
+msgid "More than one distinct canonical URL"
+msgstr "Più di un URL canonical distinto"
+
+msgid "The page declares more than one canonical target. Check the theme, the SEO plugins and the content for duplicate canonical tags."
+msgstr "La pagina dichiara più di un target canonical. Controlla tema, plugin SEO e contenuto per tag canonical duplicati."
+
+msgid "Canonical differs from the expected value"
+msgstr "Il canonical differisce dal valore atteso"
+
+msgid "The observed canonical differs from the value Yoast resolves for this page. Clear the caches, repeat the scan and compare with the output of the theme or other plugins."
+msgstr "Il canonical osservato differisce dal valore che Yoast risolve per questa pagina. Svuota le cache, ripeti la scansione e confronta con l'output del tema o di altri plugin."
+
+msgid "Canonical missing where Yoast expects one"
+msgstr "Canonical assente dove Yoast ne prevede uno"
+
+msgid "No canonical tag was observed although Yoast resolves one. Check whether a template or a plugin removes the tag in the public output."
+msgstr "Nessun tag canonical osservato, anche se Yoast ne risolve uno. Verifica se un template o un plugin rimuove il tag nell'output pubblico."
+
+msgid "Effective robots directives differ from the expected value"
+msgstr "Le direttive robots effettive differiscono dal valore atteso"
+
+msgid "The robots directives observed in the meta tag or the HTTP header differ from the value Yoast resolves. Check the headers set by the server and other plugins."
+msgstr "Le direttive robots osservate nel meta tag o nell'header HTTP differiscono dal valore che Yoast risolve. Controlla gli header impostati dal server e dagli altri plugin."
+
+msgid "Unexpected noindex"
+msgstr "Noindex inatteso"
+
+msgid "The page is observed as noindex although Yoast does not expect it. Check the indexing settings of the content and any header-level directive."
+msgstr "La pagina risulta noindex anche se Yoast non lo prevede. Controlla le impostazioni di indicizzazione del contenuto e le direttive a livello di header."
+
+msgid "JSON-LD block cannot be parsed"
+msgstr "Blocco JSON-LD non interpretabile"
+
+msgid "A JSON-LD block in the public output is not valid JSON. Check the templates and plugins that print structured data."
+msgstr "Un blocco JSON-LD nell'output pubblico non è JSON valido. Controlla i template e i plugin che stampano dati strutturati."
+
+msgid "JSON-LD entity contradicts the expected one"
+msgstr "Un'entità JSON-LD contraddice quella attesa"
+
+msgid "An entity in the observed JSON-LD contradicts the entity Yoast expects for this page. Compare the @type and @id values in the public output."
+msgstr "Un'entità del JSON-LD osservato contraddice quella che Yoast prevede per questa pagina. Confronta i valori @type e @id nell'output pubblico."
+
+msgid "Expected JSON-LD node missing"
+msgstr "Nodo JSON-LD atteso mancante"
+
+msgid "The public output lacks a JSON-LD node that Yoast expects. Check whether the schema output is disabled or replaced by another plugin."
+msgstr "Nell'output pubblico manca un nodo JSON-LD che Yoast prevede. Verifica se l'output dello schema è disattivato o sostituito da un altro plugin."

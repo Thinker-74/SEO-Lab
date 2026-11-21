@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace SeoLab\Diagnosis;
 
 use SeoLab\Contracts\ExpectedProvider;
+use SeoLab\Contracts\ExpectedSnapshot;
 use SeoLab\Contracts\ObservedSnapshot;
 use SeoLab\Contracts\RuleOutcome;
 use SeoLab\Rules\JsonLdEntityContradictionRule;
@@ -30,7 +31,16 @@ final class JsonLdDiagnoser
      */
     public function diagnose(int $postId, ObservedSnapshot $observed): array
     {
-        $expected = $this->provider->forPost($postId);
+        return $this->diagnoseResolved($this->provider->forPost($postId), $observed);
+    }
+
+    /**
+     * Come diagnose(), con l'atteso gia' risolto dal chiamante (una sola risoluzione per scansione).
+     *
+     * @return RuleOutcome[]
+     */
+    public function diagnoseResolved(ExpectedSnapshot $expected, ObservedSnapshot $observed): array
+    {
         $rules = [
             new JsonLdParseErrorRule(),
             new JsonLdEntityContradictionRule(),
