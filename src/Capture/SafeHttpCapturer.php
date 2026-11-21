@@ -270,6 +270,13 @@ final class SafeHttpCapturer implements ContentCapturer
         if (isset($extracted['error'])) {
             return $this->outcome('failed', (string) $extracted['error'], $requested, $capturedAt, $redirects, $code, $contentType);
         }
+        $canonical = self::mergeCanonical(
+            $extracted['values']['canonical'],
+            $extracted['positions']['canonical'],
+            LinkHeader::canonicalTargets($headers['link'] ?? [], $current)
+        );
+        $extracted['values']['canonical'] = $canonical['value'];
+        $extracted['positions']['canonical'] = $canonical['positions'];
 
         return $this->build([
             'capture_status' => 'ok',
@@ -428,6 +435,32 @@ final class SafeHttpCapturer implements ContentCapturer
             $out[$name] = $value;
         }
         return $out;
+    }
+
+    /**
+     * Unisce i canonical del documento (head e fuori head) con quelli dell'header Link. Un'ambiguita' in una delle
+     * due fonti rende l'intera famiglia unobservable. Le posizioni restano allineate ai target.
+     *
+     * @param array<string, mixed> $html     famiglia canonical estratta dal documento
+     * @param string[]|null       $htmlPositions posizioni del documento
+     * @param array{state: string, targets: string[]} $link canonical dell'header Link
+     * @return array{value: array<string, mixed>, positions: string[]}
+     */
+    private static function mergeCanonical(array $html, ?array $htmlPositions, array $link): array
+    {
+        if ($html['availability'] === 'unobservable' || $link['state'] === 'unobservable') {
+            return ['value' => ['availability' => 'unobservable', 'value' => null], 'positions' => []];
+        }
+        $items = $html['availability'] === 'present' ? $html['value'] : [];
+        $positions = $html['availability'] === 'present' ? $htmlPositions : [];
+        foreach ($link['targets'] as $target) {
+            $items[] = $target;
+            $positions[] = 'http_header';
+        }
+        if ($items === []) {
+            return ['value' => ['availability' => 'absent', 'value' => []], 'positions' => []];
+        }
+        return ['value' => ['availability' => 'present', 'value' => $items], 'positions' => $positions];
     }
 
     /**

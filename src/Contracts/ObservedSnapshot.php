@@ -312,7 +312,8 @@ final class ObservedSnapshot
 
     /**
      * Posizioni opzionali: liste per canonical e robots, di lunghezza pari ai valori osservati.
-     * Robots da meta: head o outside_head; robots da header: solo http_header.
+     * Canonical da meta: head o outside_head, da HTTP Link: http_header. Robots da meta: head o outside_head;
+     * robots da header: solo http_header.
      *
      * @param mixed                        $positions
      * @param array<string, ObservedValue> $values
@@ -341,6 +342,9 @@ final class ObservedSnapshot
                     if ($position !== 'http_header') {
                         throw new \InvalidArgumentException('observed_positions.robots: robots da header richiede http_header');
                     }
+                    continue;
+                }
+                if ($family === 'canonical' && $position === 'http_header') {
                     continue;
                 }
                 if (!in_array($position, self::POSITIONS_HEAD, true)) {
