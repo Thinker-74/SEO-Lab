@@ -245,6 +245,7 @@ foreach (['07-jsonld-id-contradiction.json', '08-jsonld-equivalent-nodes.json', 
     $report = $scan['report'];
     $fid = $fixture['fixture_id'];
     $fixturesRead++;
+    echo 'FIXTURE ' . $fid . "\n";
 
     $observed = observe($scan['input']['html'], ['url' => $report['observed_url'], 'requested' => $report['requested_url']]);
     $expected = new ExpectedSnapshot(['configured' => $report['expected']['configured'], 'resolved' => $report['expected']['resolved']]);

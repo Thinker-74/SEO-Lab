@@ -629,6 +629,7 @@ foreach ($fixtureFiles as $id) {
     $fixture = json_decode((string) file_get_contents($files[0]), true);
     check('fixture ' . $id . ' JSON valido', is_array($fixture));
     $fixturesRead++;
+    echo 'FIXTURE ' . $id . "\n";
     foreach ($fixture['scans'] as $index => $scan) {
         $scansRead++;
         $label = 'fixture ' . $id . '#' . $index;

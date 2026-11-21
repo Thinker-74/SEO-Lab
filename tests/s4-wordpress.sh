@@ -8,7 +8,27 @@
 # Risorse etichettate con ai-bus.sandbox=<id sandbox>, rimosse nel trap di uscita anche su errore.
 set -uo pipefail
 
+# --release-zip <file>: installa il pacchetto ZIP (sola lettura) invece di montare il checkout; esegue anche P-005.
+RELEASE_ZIP=''
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --release-zip)
+            [ "$#" -ge 2 ] || { echo '--release-zip richiede un file' >&2; exit 2; }
+            RELEASE_ZIP="$2"
+            shift 2
+            ;;
+        *)
+            echo "argomento non valido: $1" >&2
+            exit 2
+            ;;
+    esac
+done
+
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+if [ -n "$RELEASE_ZIP" ]; then
+    [ -f "$RELEASE_ZIP" ] || { echo "ZIP non trovato: $RELEASE_ZIP" >&2; exit 2; }
+    RELEASE_ZIP="$(cd -- "$(dirname -- "$RELEASE_ZIP")" && pwd)/$(basename -- "$RELEASE_ZIP")"
+fi
 AI_BUS="$ROOT/.ai/bin/ai-bus"
 export AI_BUS_SANDBOX_ROOT="$ROOT/.ai/sandbox"
 YOAST_URL='https://downloads.wordpress.org/plugin/wordpress-seo.28.9.zip'
@@ -100,6 +120,12 @@ PLUGIN_MOUNTS=(
     -v "$ROOT/src:$PLUGIN_DIR/src:ro"
     -v "$ROOT/languages:$PLUGIN_DIR/languages:ro"
 )
+ZIP_MOUNTS=()
+if [ -n "$RELEASE_ZIP" ]; then
+    # Modalita' ZIP: nessun bind-mount del checkout; il plugin viene installato dal pacchetto nel volume.
+    PLUGIN_MOUNTS=()
+    ZIP_MOUNTS=(-v "$RELEASE_ZIP:/zip/seo-lab.zip:ro")
+fi
 
 docker network create --internal --label "ai-bus.sandbox=$SID" "$NET" >/dev/null || exit 1
 docker run -d --pull never --name "$DB_NAME" --network "$NET" --network-alias seolab-db --label "ai-bus.sandbox=$SID" \
@@ -133,12 +159,12 @@ wait_for docker exec "$WEB_NAME" test -f /var/www/html/wp-config.php
 
 wpcli() {
     docker run --rm --pull never --network "$NET" --label "ai-bus.sandbox=$SID" --user 33:33 \
-        -v "$VOL:/var/www/html" "${PLUGIN_MOUNTS[@]}" \
+        -v "$VOL:/var/www/html" "${PLUGIN_MOUNTS[@]}" "${ZIP_MOUNTS[@]}" \
         -v "$SANDBOX/yoast:/yoast:ro" \
         -v "$ROOT/tests:/seolab/tests:ro" \
         -e WORDPRESS_DB_HOST=seolab-db -e WORDPRESS_DB_NAME=wp -e WORDPRESS_DB_USER=wp -e WORDPRESS_DB_PASSWORD="$DB_PASS" \
         -e WP_ENVIRONMENT_TYPE=production \
-        -e S4_POST_ID -e S4_OTHER_BLOG -e S4_SQL -e S4_ADMIN_LOGIN \
+        -e S4_POST_ID -e S4_OTHER_BLOG -e S4_SQL -e S4_ADMIN_LOGIN -e S5_STEP -e S5_TABLE_BLOGS \
         "$CLI_IMG" wp "$@"
 }
 
@@ -212,7 +238,28 @@ wpcli core multisite-install --url="$BASE_A" --title='Sito sintetico S4' \
 SITE_B="$(wpcli site create --slug=sitio-b --title='Sito B sintetico' --email=s4-b@example.invalid --porcelain)" || exit 1
 wpcli user create admina s4-a@example.invalid --role=administrator --user_pass="$PASS_A" --url="$BASE_A" >/dev/null || exit 1
 wpcli user create adminb s4-b-admin@example.invalid --role=administrator --user_pass="$PASS_B" --url="$BASE_B" >/dev/null || exit 1
-wpcli plugin activate seo-lab --network >/dev/null || exit 1
+if [ -n "$RELEASE_ZIP" ]; then
+    wpcli plugin install /zip/seo-lab.zip --activate-network >/dev/null || exit 1
+    # Non vacuita': classi e file installati dal pacchetto, nessun bind-mount del plugin sul sito web.
+    CLASS_FILE="$(wpcli --url="$BASE_A" eval 'echo (new ReflectionClass("SeoLab\\Admin\\Plugin"))->getFileName();' 2>/dev/null | tr -d '\r')"
+    check 'zip_classe_caricata_dal_plugin_installato' "$(case "$CLASS_FILE" in "$PLUGIN_DIR"/src/*) echo yes ;; *) echo no ;; esac)"
+    WEB_MOUNTS="$(docker inspect -f '{{range .Mounts}}{{.Destination}} {{end}}' "$WEB_NAME")"
+    check 'zip_nessun_bind_mount_del_plugin' "$(case "$WEB_MOUNTS" in *plugins/seo-lab*) echo no ;; *) echo yes ;; esac)"
+    # Il contenuto installato deve coincidere byte per byte con lo ZIP (hash per file, stesso elenco).
+    EXPECTED_HASHES="$(python3 -c '
+import hashlib, sys, zipfile
+archive = zipfile.ZipFile(sys.argv[1])
+for info in sorted(archive.infolist(), key=lambda item: item.filename):
+    if not info.filename.endswith("/"):
+        print(hashlib.sha256(archive.read(info.filename)).hexdigest() + "  " + info.filename[len("seo-lab/"):])
+' "$RELEASE_ZIP")"
+    INSTALLED_HASHES="$(docker run --rm --pull never --network none --label "ai-bus.sandbox=$SID" --user 33:33 \
+        --entrypoint sh -v "$VOL:/var/www/html:ro" "$CLI_IMG" -c "cd '$PLUGIN_DIR' && find . -type f | sed 's#^\./##' | LC_ALL=C sort | while IFS= read -r f; do sha256sum \"\$f\"; done")"
+    echo "info zip_file=$(printf '%s\n' "$EXPECTED_HASHES" | grep -c .) installati=$(printf '%s\n' "$INSTALLED_HASHES" | grep -c .) zip_sha256=$(sha256sum "$RELEASE_ZIP" | cut -d' ' -f1)"
+    check 'zip_installazione_identica_al_pacchetto' "$([ -n "$EXPECTED_HASHES" ] && [ "$EXPECTED_HASHES" = "$INSTALLED_HASHES" ] && echo yes || echo no)"
+else
+    wpcli plugin activate seo-lab --network >/dev/null || exit 1
+fi
 # Lingua dell'admin B: preferenza utente (WordPress senza pacchetto core it_IT usa en_US per il sito).
 wpcli user meta update adminb locale it_IT >/dev/null || exit 1
 # Regole di rewrite dei sottositi (subdirectory multisite) nell'albero condiviso: WordPress non le genera da solo.
@@ -430,6 +477,43 @@ PROBE_FAILS="$(grep -c '"ok":false' "$SANDBOX/s4-wp-check-a.jsonl")"
 PROBE_TOTAL="$(grep -c '"check"' "$SANDBOX/s4-wp-check-a.jsonl")"
 grep '"ok":false' "$SANDBOX/s4-wp-check-a.jsonl"
 check "sonda_wp_blog_a_${PROBE_TOTAL}_controlli" "$([ "$PROBE_RC" -eq 0 ] && [ "$PROBE_TOTAL" -gt 0 ] && [ "$PROBE_FAILS" -eq 0 ] && echo yes || echo no)"
+
+# --- P-005 (solo modalita' ZIP): disattivazione conserva i dati, uninstall di WordPress elimina solo i dati SEO Lab ---
+if [ -n "$RELEASE_ZIP" ]; then
+    SITE_C="$(wpcli site create --slug=sitio-c --title='Sito C sintetico' --email=s5-c@example.invalid --porcelain)" || exit 1
+    export S5_TABLE_BLOGS="1 $SITE_B"
+    S5_RUNS=0
+    S5_LAST_RC=0
+    # s5_run <passo>: un passo in un processo wp separato, con righe S5WP in $SANDBOX/s5-p005.jsonl.
+    s5_run() {
+        local step="$1"
+        S5_RUNS=$((S5_RUNS + 1))
+        S5_STEP="$step" wpcli --url="$BASE_A" eval-file /seolab/tests/s5-uninstall-wp.php > "$SANDBOX/s5-$S5_RUNS-$step.txt" 2>&1
+        S5_LAST_RC=$?
+        echo "info p005 passo=$S5_RUNS:$step rc=$S5_LAST_RC"
+        sed -n 's/^S5WP //p' "$SANDBOX/s5-$S5_RUNS-$step.txt" >> "$SANDBOX/s5-p005.jsonl"
+    }
+    : > "$SANDBOX/s5-p005.jsonl"
+    s5_run seed
+    wpcli --url="$BASE_A" plugin deactivate seo-lab --network >/dev/null || FAILED=1
+    s5_run kept
+    s5_run uninstall
+    s5_run removed
+    s5_run uninstall
+    s5_run removed
+    s5_run refuse_seed
+    s5_run uninstall_refused
+    REFUSE_RC=$S5_LAST_RC
+    check 'p005_rifiuto_drop_segnalato_senza_esito_ok' "$([ "$REFUSE_RC" -ne 0 ] || grep -q 'could not remove' "$SANDBOX/s5-$S5_RUNS-uninstall_refused.txt" && echo yes || echo no)"
+    s5_run kept
+    s5_run uninstall
+    s5_run removed
+    P5_TOTAL="$(grep -c '"check"' "$SANDBOX/s5-p005.jsonl")"
+    P5_FAILS="$(grep -c '"ok":false' "$SANDBOX/s5-p005.jsonl")"
+    grep '"ok":false' "$SANDBOX/s5-p005.jsonl"
+    check "p005_uninstall_wp_${P5_TOTAL}_controlli" "$([ "$P5_TOTAL" -gt 0 ] && [ "$P5_FAILS" -eq 0 ] && echo yes || echo no)"
+    cp "$SANDBOX/s5-p005.jsonl" "$ROOT/.ai/20_execution/s5-p005-wp.jsonl"
+fi
 
 echo "Esito: passati=$PASSED, falliti=$FAILS"
 EVIDENCE="$ROOT/.ai/20_execution"

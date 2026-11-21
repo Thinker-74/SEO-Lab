@@ -311,6 +311,7 @@ function capture_html(int $postId, string $permalink, string $html, int $code = 
 
 /** Fixture 10: due scansioni grezze e le risoluzioni Yoast attese. */
 $FX = json_decode((string) file_get_contents(__DIR__ . '/fixtures/10-canonical-corrected-rescan.json'), true);
+echo 'FIXTURE ' . $FX['fixture_id'] . "\n";
 $FX_URL = 'https://example.test/pagina-10/';
 $FX_POST = 110;
 $FX_HTML1 = $FX['scans'][0]['input']['html'];

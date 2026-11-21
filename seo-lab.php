@@ -2,6 +2,7 @@
 /**
  * Plugin Name: SEO Lab
  * Description: Read-only SEO output debugger: compares the expected Yoast values with the public output of a page.
+ * Version: 0.2.0
  * License: GPL-3.0-or-later
  * Text Domain: seo-lab
  * Domain Path: /languages
