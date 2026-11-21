@@ -1,7 +1,8 @@
-.ai/20_execution/
-.ai/30_review/
-.ai/bus/lock
-.ai/sandbox/
+# Materiale interno del server di sviluppo: resta locale, mai su GitHub.
+.ai/
+CLAUDE.md
+docs/progress/
+memory/
 .claude/settings.local.json
 .env
 .env.*
