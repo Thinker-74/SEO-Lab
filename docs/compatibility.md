@@ -13,7 +13,7 @@ Prove del 2026-11-21, ambiente di sviluppo locale (Docker). Ogni riga indica il 
 | WordPress multisite | due siti, admin di un solo sito | Permessi, tabella e report isolati; uninstall su due siti e su un sito senza tabella | Superata |
 | Cattura da permalink pubblico | ambiente locale isolato | Il capturer blocca l'host privato dell'ambiente di prova | Esito `blocked` come atteso. Il caso `ok` è verificato offline con trasporto di test, non in rete |
 | WordPress 7.1.5 e PHP 8.4.28, sonda da STDIN (`wp eval-file -`, senza plugin né tema) | Ambiente locale isolato | Pagina pubblicata, bozza, ID inesistente, ID non valido, ID assente | Cinque casi `INCONCLUSIVE` con motivo atteso, zero richieste web. Il caso `GO` è verificato offline con trasporto di test (22 controlli) |
-| Hosting condiviso | PHP da verificare | Sonda da STDIN su una pagina pubblicata, prova non ancora eseguita sul sito | In attesa del riscontro: nessun esito pubblicato |
+| Hosting condiviso | PHP 8.4 (CLI) | Sonda da STDIN su una pagina pubblicata | GO |
 
 ## Limiti dichiarati
 

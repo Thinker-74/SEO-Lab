@@ -70,10 +70,20 @@ switch ($step) {
             $inserted = $wpdb->query('INSERT IGNORE INTO ' . $wpdb->prefix . 's5_other_sentinel (id) VALUES (1)');
             $wpdb->suppress_errors($suppress);
             update_option('s5_other_component', 'keep', false);
-            return $created !== false && $inserted !== false && s5_option_present('s5_other_component');
+            // Opzioni della revisione AI P1.2: l'uninstall le rimuove solo con il drop riuscito, come le opzioni P0.
+            update_option('seolab_ai_enabled', '1', false);
+            update_option('seolab_ai_ledger', '{"v":1,"rows":[]}', false);
+            // Cooldown P0 presente anche senza scansioni (modalita' --p1-ai non esegue scansioni P0).
+            if (!s5_option_present('seolab_scan_last')) {
+                update_option('seolab_scan_last', (string) time(), false);
+            }
+            return $created !== false && $inserted !== false && s5_option_present('s5_other_component')
+                && s5_option_present('seolab_ai_enabled') && s5_option_present('seolab_ai_ledger');
         });
         s5_check('sentinelle_altro_componente_seminate', !in_array(false, $seeded, true), implode(',', array_keys($seeded)));
-        s5_check('precondizione_sentinella_yoast', s5_option_present('wpseo_titles'), 'wpseo_titles sul blog corrente');
+        if (!getenv('S5_SKIP_YOAST')) {
+            s5_check('precondizione_sentinella_yoast', s5_option_present('wpseo_titles'), 'wpseo_titles sul blog corrente');
+        }
         break;
 
     case 'kept':
@@ -84,6 +94,8 @@ switch ($step) {
                 'table' => s5_table_exists('seolab_reports'),
                 'schema' => s5_option_present('seolab_schema_version'),
                 'last' => s5_option_present('seolab_scan_last'),
+                'ai_enabled' => s5_option_present('seolab_ai_enabled'),
+                'ai_ledger' => s5_option_present('seolab_ai_ledger'),
                 'sentinel_table' => s5_table_exists('s5_other_sentinel'),
                 'sentinel_option' => s5_option_present('s5_other_component'),
                 'sentinel_wp' => s5_option_present('blogname'),
@@ -95,10 +107,16 @@ switch ($step) {
                 ? ($s['table'] === $hasTable && (!$hasTable || ($s['schema'] && $s['last'])))
                 : ($s['table'] === false && $s['schema'] === false && $s['last'] === false);
             s5_check("seolab_{$step}_blog_$blogId", $seolabOk, 'tabella=' . ($s['table'] ? 'si' : 'no') . ' opzioni=' . ($s['schema'] ? 'si' : 'no') . '/' . ($s['last'] ? 'si' : 'no'));
+            $aiOk = $expectSeolab
+                ? ($s['ai_enabled'] && $s['ai_ledger'])
+                : (!$s['ai_enabled'] && !$s['ai_ledger']);
+            s5_check("ai_{$step}_blog_$blogId", $aiOk, 'opzioni AI=' . ($s['ai_enabled'] ? 'si' : 'no') . '/' . ($s['ai_ledger'] ? 'si' : 'no'));
             s5_check("sentinelle_intatte_blog_$blogId", $s['sentinel_table'] && $s['sentinel_option'] && $s['sentinel_wp'], 'altro componente e WordPress');
         }
-        $yoastOnFirst = in_array(1, array_keys($state), true);
-        s5_check("sentinella_yoast_$step", $yoastOnFirst && s5_option_present('wpseo_titles'), 'wpseo_titles sul blog 1');
+        if (!getenv('S5_SKIP_YOAST')) {
+            $yoastOnFirst = in_array(1, array_keys($state), true);
+            s5_check("sentinella_yoast_$step", $yoastOnFirst && s5_option_present('wpseo_titles'), 'wpseo_titles sul blog 1');
+        }
         if ($step === 'removed') {
             s5_check('prefisso_blog_ripristinato', $wpdb->prefix === $wpdb->get_blog_prefix($startBlog), (string) $wpdb->prefix);
             s5_check('blog_corrente_ripristinato', get_current_blog_id() === $startBlog, 'blog ' . get_current_blog_id());
@@ -117,6 +135,11 @@ switch ($step) {
                 restore_current_blog();
             }
         }
+        // Opzioni AI su ogni blog: il rifiuto del DROP non deve rimuoverle.
+        s5_each_blog(static function (): void {
+            update_option('seolab_ai_enabled', '1', false);
+            update_option('seolab_ai_ledger', '{"v":1,"rows":[]}', false);
+        });
         s5_check('tabelle_rifiuto_ricreate', true, implode(',', $tableBlogs));
         break;
 

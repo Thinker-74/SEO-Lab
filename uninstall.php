@@ -26,6 +26,8 @@ $seolab_uninstall_blog = static function (): bool {
 
     delete_option('seolab_schema_version');
     delete_option('seolab_scan_last');
+    delete_option('seolab_ai_enabled');
+    delete_option('seolab_ai_ledger');
 
     return true;
 };

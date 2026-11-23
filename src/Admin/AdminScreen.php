@@ -104,6 +104,7 @@ final class AdminScreen
         echo self::form('seo_lab_export', 'seo_lab_export_' . get_current_blog_id() . '_' . $reportId,
             [['report', $reportId]], __('Export JSON', 'seo-lab'));
         echo '</p>';
+        echo Plugin::aiReviewForm($report);
     }
 
     private static function renderComparison(ScanReport $before, ScanReport $after): void

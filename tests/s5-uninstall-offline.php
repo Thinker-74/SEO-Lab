@@ -53,7 +53,7 @@ class SeolabTestWpdb
     public function query($sql)
     {
         $this->queries[] = $sql;
-        return true;
+        return empty($GLOBALS['S']['drop_fails']);
     }
 }
 
@@ -89,6 +89,7 @@ function run_uninstall($uninstall, array $scenario)
     $GLOBALS['S'] = [
         'multisite' => $scenario['multisite'],
         'batches' => $scenario['batches'],
+        'drop_fails' => !empty($scenario['drop_fails']),
         'calls' => 0,
         'stack' => [],
         'deleted' => [],
@@ -149,7 +150,15 @@ list($state, $db) = run_uninstall($uninstall, [
     'batches' => [],
 ]);
 check($state['died'] === [] && $db->queries === ['DROP TABLE IF EXISTS `wp_seolab_reports`'], 'sito singolo: DROP del solo prefisso corrente');
-check($state['deleted'] === ['seolab_schema_version', 'seolab_scan_last'], 'sito singolo: opzioni SEO Lab rimosse');
+check($state['deleted'] === ['seolab_schema_version', 'seolab_scan_last', 'seolab_ai_enabled', 'seolab_ai_ledger'], 'sito singolo: opzioni SEO Lab e AI rimosse');
+
+// G. Sito singolo con DROP rifiutato: fallimento segnalato e nessuna opzione rimossa, neppure quelle AI.
+list($state, $db) = run_uninstall($uninstall, [
+    'multisite' => false,
+    'batches' => [],
+    'drop_fails' => true,
+]);
+check(count($state['died']) === 1 && $state['deleted'] === [], 'drop rifiutato: nessuna opzione SEO Lab o AI rimossa');
 
 echo "PASS $passed FAIL $failed\n";
 exit($failed === 0 ? 0 : 1);

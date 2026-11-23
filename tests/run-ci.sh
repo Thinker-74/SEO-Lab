@@ -51,6 +51,9 @@ check_fixtures s3-jsonld "07 08 09"
 run_suite s4-report tests/s4-report.php
 check_fixtures s4-report "10"
 run_suite s5-uninstall-offline tests/s5-uninstall-offline.php
+run_suite p1-foundation tests/p1-foundation.php
+run_suite p1-connectors tests/p1-connectors.php
+run_suite p1-admin tests/p1-admin.php
 
 cat "$WORK"/ci-s2-diagnosis.fixtures "$WORK"/ci-s3-jsonld.fixtures "$WORK"/ci-s4-report.fixtures | sort -u > "$WORK/ci-fixtures-union.txt"
 printf '%s\n' 01 02 03 04 05 06 07 08 09 10 | diff - "$WORK/ci-fixtures-union.txt" > /dev/null || fail "unione fixture diversa da 01-10"

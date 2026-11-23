@@ -351,3 +351,150 @@ msgstr ""
 #: Admin/RuleMessages.php:57
 msgid "The public output lacks a JSON-LD node that Yoast expects. Check whether the schema output is disabled or replaced by another plugin."
 msgstr ""
+
+msgid "AI review"
+msgstr ""
+
+msgid "AI review is off on this site."
+msgstr ""
+
+msgid "AI review is optional and off by default. Nothing is sent to a provider unless you turn it on and approve each request."
+msgstr ""
+
+msgid "Analyze with AI"
+msgstr ""
+
+msgid "Back"
+msgstr ""
+
+msgid "Back to the report"
+msgstr ""
+
+msgid "Choose a language"
+msgstr ""
+
+msgid "Choose a provider"
+msgstr ""
+
+msgid "Data (only the findings of the report, no page values)"
+msgstr ""
+
+msgid "English"
+msgstr ""
+
+msgid "Explanation"
+msgstr ""
+
+msgid "Hypothesis"
+msgstr ""
+
+msgid "Instructions (system)"
+msgstr ""
+
+msgid "Italian"
+msgstr ""
+
+msgid "Language"
+msgstr ""
+
+msgid "Language of the content"
+msgstr ""
+
+msgid "Maximum output"
+msgstr ""
+
+msgid "Model ID"
+msgstr ""
+
+msgid "Off"
+msgstr ""
+
+msgid "On"
+msgstr ""
+
+msgid "Preview"
+msgstr ""
+
+msgid "Provider"
+msgstr ""
+
+msgid "Provider keys stay in WordPress Connectors. SEO Lab does not store them."
+msgstr ""
+
+msgid "Request preview"
+msgstr ""
+
+msgid "Rule %1$s, evidence %2$d (%3$s)"
+msgstr ""
+
+msgid "Rule %s"
+msgstr ""
+
+msgid "Save"
+msgstr ""
+
+msgid "Send a request"
+msgstr ""
+
+msgid "SEO Lab AI"
+msgstr ""
+
+msgid "Settings saved."
+msgstr ""
+
+msgid "Suggested test"
+msgstr ""
+
+msgid "Technical reserve"
+msgstr ""
+
+msgid "The AI answer was not valid and was not shown."
+msgstr ""
+
+msgid "The AI provider cannot answer now. Nothing was stored."
+msgstr ""
+
+msgid "The AI review could not be completed."
+msgstr ""
+
+msgid "The daily AI limit of this site is reached. Nothing was sent."
+msgstr ""
+
+msgid "The provider is not configured in WordPress Connectors."
+msgstr ""
+
+msgid "The request changed or expired. Preview it again before sending."
+msgstr ""
+
+msgid "This report cannot be reviewed: it has no findings or the content is no longer eligible."
+msgstr ""
+
+msgid "This text was produced by an AI model. Check it against the report before acting."
+msgstr ""
+
+msgid "This WordPress version does not offer AI review. Only the standard SEO Lab reports are available."
+msgstr ""
+
+msgid "This WordPress version does not offer AI review. SEO Lab works as usual."
+msgstr ""
+
+msgid "tokens"
+msgstr ""
+
+msgid "Tokens reported by the provider"
+msgstr ""
+
+msgid "Too many AI requests in a short time. Try again later."
+msgstr ""
+
+msgid "units (operational estimate, not the provider invoice)"
+msgstr ""
+
+msgid "WordPress AI is available on this site."
+msgstr ""
+
+msgid "WordPress AI is turned off on this site: AI review cannot run."
+msgstr ""
+
+msgid "You will see the exact text sent before anything is sent."
+msgstr ""

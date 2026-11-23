@@ -9,7 +9,9 @@
 set -uo pipefail
 
 # --release-zip <file>: installa il pacchetto ZIP (sola lettura) invece di montare il checkout; esegue anche P-005.
+# --p1-ai: revisione AI privata P1.2 sul checkout, con connettore sintetico nella sola sandbox; esegue anche P-005.
 RELEASE_ZIP=''
+P1_AI=0
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --release-zip)
@@ -17,12 +19,24 @@ while [ "$#" -gt 0 ]; do
             RELEASE_ZIP="$2"
             shift 2
             ;;
+        --p1-ai)
+            P1_AI=1
+            shift
+            ;;
         *)
             echo "argomento non valido: $1" >&2
             exit 2
             ;;
     esac
 done
+if [ "$P1_AI" = 1 ] && [ -n "$RELEASE_ZIP" ]; then
+    echo '--p1-ai non si combina con --release-zip: usa il checkout' >&2
+    exit 2
+fi
+if [ "$P1_AI" = 1 ]; then
+    # Yoast non e' installato in --p1-ai: le sentinelle wpseo_* del passo P-005 non si applicano.
+    export S5_SKIP_YOAST=1
+fi
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 if [ -n "$RELEASE_ZIP" ]; then
@@ -101,12 +115,14 @@ check() {
     fi
 }
 
-mkdir -p "$SANDBOX/yoast"
-curl -fsSL --max-time 180 -o "$SANDBOX/yoast/wordpress-seo.zip" "$YOAST_URL" || exit 1
-YOAST_GOT="$(sha256sum "$SANDBOX/yoast/wordpress-seo.zip" | cut -d' ' -f1)"
-if [ "$YOAST_GOT" != "$YOAST_SHA256" ]; then
-    echo "sha256 Yoast inatteso: $YOAST_GOT" >&2
-    exit 1
+if [ "$P1_AI" != 1 ]; then
+    mkdir -p "$SANDBOX/yoast"
+    curl -fsSL --max-time 180 -o "$SANDBOX/yoast/wordpress-seo.zip" "$YOAST_URL" || exit 1
+    YOAST_GOT="$(sha256sum "$SANDBOX/yoast/wordpress-seo.zip" | cut -d' ' -f1)"
+    if [ "$YOAST_GOT" != "$YOAST_SHA256" ]; then
+        echo "sha256 Yoast inatteso: $YOAST_GOT" >&2
+        exit 1
+    fi
 fi
 
 DB_PASS="$(openssl rand -hex 16)"
@@ -120,6 +136,10 @@ PLUGIN_MOUNTS=(
     -v "$ROOT/src:$PLUGIN_DIR/src:ro"
     -v "$ROOT/languages:$PLUGIN_DIR/languages:ro"
 )
+if [ "$P1_AI" = 1 ]; then
+    # P1.2: il drop e la pulizia delle opzioni AI passano dal uninstall.php reale del checkout.
+    PLUGIN_MOUNTS+=(-v "$ROOT/uninstall.php:$PLUGIN_DIR/uninstall.php:ro")
+fi
 ZIP_MOUNTS=()
 if [ -n "$RELEASE_ZIP" ]; then
     # Modalita' ZIP: nessun bind-mount del checkout; il plugin viene installato dal pacchetto nel volume.
@@ -164,7 +184,7 @@ wpcli() {
         -v "$ROOT/tests:/seolab/tests:ro" \
         -e WORDPRESS_DB_HOST=seolab-db -e WORDPRESS_DB_NAME=wp -e WORDPRESS_DB_USER=wp -e WORDPRESS_DB_PASSWORD="$DB_PASS" \
         -e WP_ENVIRONMENT_TYPE=production \
-        -e S4_POST_ID -e S4_OTHER_BLOG -e S4_SQL -e S4_ADMIN_LOGIN -e S5_STEP -e S5_TABLE_BLOGS \
+        -e S4_POST_ID -e S4_OTHER_BLOG -e S4_SQL -e S4_ADMIN_LOGIN -e S5_STEP -e S5_TABLE_BLOGS -e P1_POST_ID -e S5_SKIP_YOAST \
         "$CLI_IMG" wp "$@"
 }
 
@@ -297,7 +317,193 @@ ROWS_A0="${ROWS_A0:-0}"
 ROWS_B0="$(rows_b)"
 ROWS_B0="${ROWS_B0:-0}"
 
+# --- P1.2 (--p1-ai): revisione AI privata su rapporto archiviato, connettore sintetico nella sola sandbox ---
+# p1_field <name>: valore del campo nascosto nel corpo appena letto.
+p1_field() {
+    body | grep -o "name=\"$1\" value=\"[^\"]*\"" | head -n 1 | sed 's/.*value="//; s/"$//'
+}
+
+# p1_calls: chiamate del modello di prova registrate nella sandbox (una riga per chiamata).
+p1_calls() {
+    docker exec "$WEB_NAME" sh -c 'cat /var/www/html/wp-content/s4-p1-calls.log 2>/dev/null | wc -l' | tr -d ' \r'
+}
+
+# p1_egress: tentativi di rete verso i provider bloccati dal mu-plugin di prova.
+p1_egress() {
+    docker exec "$WEB_NAME" sh -c 'cat /var/www/html/wp-content/s4-p1-egress.log 2>/dev/null | wc -l' | tr -d ' \r'
+}
+
+# p1_normal <file>: pagina con i nonce normalizzati, per il confronto dell'identita' della vista P0.
+p1_normal() {
+    sed -E -e 's/(name="(seo_lab_nonce|seo_lab_ctx_nonce|_wpnonce)" value=")[^"]*"/\1X"/g' -e 's/"time":"[0-9]+"/"time":"X"/g' "$1"
+}
+
+# conc_post <n> <jar> <argomenti curl...>: POST concorrente verso admin-post.php, codice HTTP in $SANDBOX/p1-conc-<n>.code.
+conc_post() {
+    local n="$1" jar="$2"
+    shift 2
+    cl curl -sS -o "/tmp/p1-body-$n" -D "/tmp/p1-hdr-$n" -b "$jar" -w '%{http_code}' "$@" "$BASE_A/wp-admin/admin-post.php" > "$SANDBOX/p1-conc-$n.code"
+}
+
+p1_ai_flow() {
+    local U07 U10 U07B ISSUED CONF_ID C_PHASE C_CTX PREVIEW_NONCE SET_NONCE MD5_BEFORE MD5_AFTER LEDGER AUTOLOAD CODES code
+    local P1_JAR_A=/tmp/s4-p1-jar-a
+    local P1_JAR_B=/tmp/s4-p1-jar-b
+    local CONFIRM_ARGS=()
+    cl rm -f /tmp/s4-p1-jar-a /tmp/s4-p1-jar-b
+
+    # Semina: rapporti idonei dalle fixture 07 e 10 sui contenuti A e B (stessa UUID, tabelle separate).
+    P1_POST_ID="$PA" wpcli --url="$BASE_A" eval-file /seolab/tests/p1-admin-wp.php > "$SANDBOX/p1-seed-a.txt" 2>&1
+    P1_POST_ID="$PB" wpcli --url="$BASE_B" eval-file /seolab/tests/p1-admin-wp.php > "$SANDBOX/p1-seed-b.txt" 2>&1
+    U07="$(sed -n 's/^P1WP {"fixture":"07","uuid":"\([^"]*\)"}$/\1/p' "$SANDBOX/p1-seed-a.txt")"
+    U10="$(sed -n 's/^P1WP {"fixture":"10","uuid":"\([^"]*\)"}$/\1/p' "$SANDBOX/p1-seed-a.txt")"
+    U07B="$(sed -n 's/^P1WP {"fixture":"07","uuid":"\([^"]*\)"}$/\1/p' "$SANDBOX/p1-seed-b.txt")"
+    check 'p1_semina_rapporti_a_e_b' "$([ -n "$U07" ] && [ -n "$U10" ] && [ -n "$U07B" ] && ! grep -q '"ok":false' "$SANDBOX/p1-seed-a.txt" && ! grep -q '"ok":false' "$SANDBOX/p1-seed-b.txt" && echo yes || echo no)"
+
+    # Login admin A, baseline della vista del rapporto con opt-in spento e impostazioni.
+    fetch "$P1_JAR_A" "$BASE_A/wp-login.php" >/dev/null
+    code="$(fetch "$P1_JAR_A" "$BASE_A/wp-login.php" --data-urlencode "log=admina" --data-urlencode "pwd=$PASS_A" \
+        --data-urlencode "wp-submit=Log In" --data-urlencode "redirect_to=$BASE_A/wp-admin/" --data-urlencode testcookie=1)"
+    check 'p1_login_admin_a' "$([ "$code" = 302 ] && echo yes || echo no)"
+    code="$(fetch "$P1_JAR_A" "$BASE_A/wp-admin/tools.php?page=seo-lab&report=$U07")"
+    check 'p1_rapporto_200_opt_in_spento' "$([ "$code" = 200 ] && has 'Verify again' && echo yes || echo no)"
+    check 'p1_nessun_form_ai_con_opt_in_spento' "$(has 'seo_lab_ai_preview' && echo no || echo yes)"
+    body > "$SANDBOX/p1-report-off-baseline.html"
+    MD5_BEFORE="$(sql_scalar "$BASE_A" "SELECT MD5(report) FROM wp_seolab_reports WHERE scan_id = '$U07'")"
+    code="$(fetch "$P1_JAR_A" "$BASE_A/wp-admin/options-general.php?page=seo-lab-ai")"
+    SET_NONCE="$(p1_field seo_lab_nonce)"
+    check 'p1_impostazioni_opt_in_spento_di_default' "$([ "$code" = 200 ] && has 'SEO Lab AI' && [ -n "$SET_NONCE" ] && has 'value="0" checked' && echo yes || echo no)"
+
+    # Attivazione: il Core deve dichiarare AI disponibile (altrimenti la prova si ferma qui).
+    code="$(fetch "$P1_JAR_A" "$BASE_A/wp-admin/admin-post.php" --data-urlencode action=seo_lab_ai_settings \
+        --data-urlencode seolab_ai_enabled=1 --data-urlencode "seo_lab_nonce=$SET_NONCE")"
+    echo "info p1_attivazione http=$code location=$(location)"
+    check 'p1_attivazione_opt_in_redirect' "$([ "$code" = 302 ] && grep -q 'saved=1' <<<"$(location)" && echo yes || echo no)"
+
+    # Connettore assente: nessun form, e un POST con nonce non valido non ammette nulla.
+    code="$(fetch "$P1_JAR_A" "$BASE_A/wp-admin/tools.php?page=seo-lab&report=$U07")"
+    check 'p1_nessun_form_senza_connettore' "$(has 'seo_lab_ai_preview' && echo no || echo yes)"
+    code="$(fetch "$P1_JAR_A" "$BASE_A/wp-admin/admin-post.php" --data-urlencode action=seo_lab_ai_preview \
+        --data-urlencode "report=$U07" --data-urlencode provider=openai --data-urlencode model=p1-fixture \
+        --data-urlencode language=it --data-urlencode seo_lab_nonce=errato)"
+    check 'p1_anteprima_nonce_errato_403' "$([ "$code" = 403 ] && echo yes || echo no)"
+
+    # Installazione del connettore sintetico nei MU-plugin della sola sandbox (mai nello ZIP).
+    docker run --rm --pull never --network none --label "ai-bus.sandbox=$SID" --user 33:33 --entrypoint sh \
+        -v "$VOL:/var/www/html" -v "$ROOT/tests:/seolab/tests:ro" "$CLI_IMG" \
+        -c 'mkdir -p /var/www/html/wp-content/mu-plugins && cp /seolab/tests/p1-admin-mu.php /var/www/html/wp-content/mu-plugins/s4-p1-fixture.php' >/dev/null || FAILED=1
+    code="$(fetch "$P1_JAR_A" "$BASE_A/wp-admin/tools.php?page=seo-lab&report=$U07")"
+    PREVIEW_NONCE="$(nonce_n 3)"
+    check 'p1_form_con_connettore_solo_openai' "$(has 'seo_lab_ai_preview' && has 'value="openai"' && ! has 'value="anthropic"' && [ -n "$PREVIEW_NONCE" ] && echo yes || echo no)"
+
+    # Anteprima: testo letterale, cap, nessuna scrittura del registro e nessuna chiamata al modello.
+    code="$(fetch "$P1_JAR_A" "$BASE_A/wp-admin/admin-post.php" --data-urlencode action=seo_lab_ai_preview \
+        --data-urlencode "report=$U07" --data-urlencode provider=openai --data-urlencode model=p1-fixture \
+        --data-urlencode language=it --data-urlencode "seo_lab_nonce=$PREVIEW_NONCE")"
+    check 'p1_anteprima_200_privata' "$([ "$code" = 200 ] && [ -z "$(location)" ] && cl grep -qi 'cache-control: private, no-store, max-age=0' /tmp/s4-hdr && echo yes || echo no)"
+    check 'p1_anteprima_system_letterale_e_cap' "$(has 'You review one WordPress SEO diagnosis' && has '768 tokens' && has 'Send a request' && echo yes || echo no)"
+    check 'p1_anteprima_nessuna_chiamata' "$([ "$(p1_calls)" = 0 ] && echo yes || echo no)"
+    ISSUED="$(p1_field issued_at)"
+    CONF_ID="$(p1_field confirmation_id)"
+    C_PHASE="$(p1_field seo_lab_nonce)"
+    C_CTX="$(p1_field seo_lab_ctx_nonce)"
+    CONFIRM_ARGS=(--data-urlencode action=seo_lab_ai_confirm --data-urlencode "report=$U07" --data-urlencode provider=openai
+        --data-urlencode model=p1-fixture --data-urlencode language=it --data-urlencode "issued_at=$ISSUED"
+        --data-urlencode "confirmation_id=$CONF_ID" --data-urlencode "seo_lab_nonce=$C_PHASE" --data-urlencode "seo_lab_ctx_nonce=$C_CTX")
+
+    # Conferma singola: un solo tentativo al modello, risultato privato senza redirect.
+    code="$(fetch "$P1_JAR_A" "$BASE_A/wp-admin/admin-post.php" "${CONFIRM_ARGS[@]}")"
+    check 'p1_conferma_200_con_risultato' "$([ "$code" = 200 ] && has 'Suggested test' && has 'Explanation' && echo yes || echo no)"
+    check 'p1_conferma_senza_redirect_e_no_store' "$([ -z "$(location)" ] && cl grep -qi 'cache-control: private, no-store' /tmp/s4-hdr && echo yes || echo no)"
+    check 'p1_un_tentativo_al_modello' "$([ "$(p1_calls)" = 1 ] && echo yes || echo no)"
+
+    # Replay immediato dello stesso invio: 429, nessuna chiamata.
+    code="$(fetch "$P1_JAR_A" "$BASE_A/wp-admin/admin-post.php" "${CONFIRM_ARGS[@]}")"
+    check 'p1_replay_429_senza_chiamata' "$([ "$code" = 429 ] && [ "$(p1_calls)" = 1 ] && echo yes || echo no)"
+
+    # Alterazione del modello su una nuova anteprima: 409, poi l'invio corretto passa.
+    sleep 11
+    code="$(fetch "$P1_JAR_A" "$BASE_A/wp-admin/admin-post.php" --data-urlencode action=seo_lab_ai_preview \
+        --data-urlencode "report=$U07" --data-urlencode provider=openai --data-urlencode model=p1-fixture \
+        --data-urlencode language=it --data-urlencode "seo_lab_nonce=$PREVIEW_NONCE")"
+    ISSUED="$(p1_field issued_at)"; CONF_ID="$(p1_field confirmation_id)"; C_PHASE="$(p1_field seo_lab_nonce)"; C_CTX="$(p1_field seo_lab_ctx_nonce)"
+    CONFIRM_ARGS=(--data-urlencode action=seo_lab_ai_confirm --data-urlencode "report=$U07" --data-urlencode provider=openai
+        --data-urlencode model=p1-other --data-urlencode language=it --data-urlencode "issued_at=$ISSUED"
+        --data-urlencode "confirmation_id=$CONF_ID" --data-urlencode "seo_lab_nonce=$C_PHASE" --data-urlencode "seo_lab_ctx_nonce=$C_CTX")
+    code="$(fetch "$P1_JAR_A" "$BASE_A/wp-admin/admin-post.php" "${CONFIRM_ARGS[@]}")"
+    check 'p1_modello_alterato_409_senza_chiamata' "$([ "$code" = 409 ] && [ "$(p1_calls)" = 1 ] && echo yes || echo no)"
+    CONFIRM_ARGS=(--data-urlencode action=seo_lab_ai_confirm --data-urlencode "report=$U07" --data-urlencode provider=openai
+        --data-urlencode model=p1-fixture --data-urlencode language=it --data-urlencode "issued_at=$ISSUED"
+        --data-urlencode "confirmation_id=$CONF_ID" --data-urlencode "seo_lab_nonce=$C_PHASE" --data-urlencode "seo_lab_ctx_nonce=$C_CTX")
+    code="$(fetch "$P1_JAR_A" "$BASE_A/wp-admin/admin-post.php" "${CONFIRM_ARGS[@]}")"
+    check 'p1_invio_corretto_dopo_rifiuto_200' "$([ "$code" = 200 ] && [ "$(p1_calls)" = 2 ] && echo yes || echo no)"
+
+    # Concorrenza: due POST identici in parallelo su una nuova anteprima. Un solo 200, un solo 429, una chiamata.
+    sleep 11
+    code="$(fetch "$P1_JAR_A" "$BASE_A/wp-admin/admin-post.php" --data-urlencode action=seo_lab_ai_preview \
+        --data-urlencode "report=$U07" --data-urlencode provider=openai --data-urlencode model=p1-fixture \
+        --data-urlencode language=it --data-urlencode "seo_lab_nonce=$PREVIEW_NONCE")"
+    ISSUED="$(p1_field issued_at)"; CONF_ID="$(p1_field confirmation_id)"; C_PHASE="$(p1_field seo_lab_nonce)"; C_CTX="$(p1_field seo_lab_ctx_nonce)"
+    CONFIRM_ARGS=(--data-urlencode action=seo_lab_ai_confirm --data-urlencode "report=$U07" --data-urlencode provider=openai
+        --data-urlencode model=p1-fixture --data-urlencode language=it --data-urlencode "issued_at=$ISSUED"
+        --data-urlencode "confirmation_id=$CONF_ID" --data-urlencode "seo_lab_nonce=$C_PHASE" --data-urlencode "seo_lab_ctx_nonce=$C_CTX")
+    local first_pid second_pid first_rc=0 second_rc=0
+    conc_post 1 "$P1_JAR_A" "${CONFIRM_ARGS[@]}" &
+    first_pid=$!
+    conc_post 2 "$P1_JAR_A" "${CONFIRM_ARGS[@]}" &
+    second_pid=$!
+    wait "$first_pid" || first_rc=$?
+    wait "$second_pid" || second_rc=$?
+    CODES="$(printf '%s\n' "$(<"$SANDBOX/p1-conc-1.code")" "$(<"$SANDBOX/p1-conc-2.code")" | LC_ALL=C sort)"
+    echo "info p1_concorrenza codici=$(printf '%s' "$CODES" | tr '\n' ',') rc=$first_rc,$second_rc chiamate=$(p1_calls)"
+    echo "info p1_concorrenza corpo1=$(cl sh -c "sed 's/<[^>]*>//g' /tmp/p1-body-1 | tr -s ' \n' ' ' | head -c 240")"
+    echo "info p1_concorrenza corpo2=$(cl sh -c "sed 's/<[^>]*>//g' /tmp/p1-body-2 | tr -s ' \n' ' ' | head -c 240")"
+    check 'p1_concorrenza_un_200_un_429' "$([ "$first_rc" = 0 ] && [ "$second_rc" = 0 ] && [ "$CODES" = $'200\n429' ] && echo yes || echo no)"
+    check 'p1_concorrenza_una_sola_chiamata' "$([ "$(p1_calls)" = 3 ] && echo yes || echo no)"
+
+    # Registro: una sola riga per sito, senza modello, UUID del rapporto o segreto; non in autoload.
+    LEDGER="$(sql_scalar "$BASE_A" "SELECT option_value FROM wp_options WHERE option_name = 'seolab_ai_ledger'")"
+    AUTOLOAD="$(sql_scalar "$BASE_A" "SELECT autoload FROM wp_options WHERE option_name = 'seolab_ai_ledger'")"
+    check 'p1_registro_senza_modello_uuid_segreto' "$(case "$LEDGER" in *p1-fixture*|*"$U07"*|*sk-p1*) echo no ;; '') echo no ;; *) echo yes ;; esac)"
+    check 'p1_registro_non_in_autoload' "$(case "$AUTOLOAD" in yes|on|auto|auto-on|'') echo no ;; *) echo yes ;; esac)"
+    MD5_AFTER="$(sql_scalar "$BASE_A" "SELECT MD5(report) FROM wp_seolab_reports WHERE scan_id = '$U07'")"
+    check 'p1_rapporto_archiviato_invariato' "$([ -n "$MD5_BEFORE" ] && [ "$MD5_BEFORE" = "$MD5_AFTER" ] && echo yes || echo no)"
+
+    # Spegnimento: la vista torna identica al baseline e la conferma con opt-in spento e' 403, senza chiamata.
+    code="$(fetch "$P1_JAR_A" "$BASE_A/wp-admin/admin-post.php" --data-urlencode action=seo_lab_ai_settings \
+        --data-urlencode seolab_ai_enabled=0 --data-urlencode "seo_lab_nonce=$SET_NONCE")"
+    check 'p1_spegnimento_redirect' "$([ "$code" = 302 ] && echo yes || echo no)"
+    code="$(fetch "$P1_JAR_A" "$BASE_A/wp-admin/tools.php?page=seo-lab&report=$U07")"
+    body > "$SANDBOX/p1-report-off-final.html"
+    check 'p1_nessun_form_ai_dopo_spegnimento' "$(has 'seo_lab_ai_preview' && echo no || echo yes)"
+    mkdir -p "$ROOT/.ai/20_execution/p1-2"
+    p1_normal "$SANDBOX/p1-report-off-baseline.html" > "$ROOT/.ai/20_execution/p1-2/p1-report-off-baseline.norm.html"
+    p1_normal "$SANDBOX/p1-report-off-final.html" > "$ROOT/.ai/20_execution/p1-2/p1-report-off-final.norm.html"
+    echo "info p1_diff_vista_off:"
+    diff "$ROOT/.ai/20_execution/p1-2/p1-report-off-baseline.norm.html" "$ROOT/.ai/20_execution/p1-2/p1-report-off-final.norm.html" | head -n 30
+    check 'p1_vista_identica_al_baseline_con_nonce_normalizzati' "$(cmp -s "$ROOT/.ai/20_execution/p1-2/p1-report-off-baseline.norm.html" "$ROOT/.ai/20_execution/p1-2/p1-report-off-final.norm.html" && echo yes || echo no)"
+    code="$(fetch "$P1_JAR_A" "$BASE_A/wp-admin/admin-post.php" "${CONFIRM_ARGS[@]}")"
+    check 'p1_opt_in_spento_blocca_conferma_403' "$([ "$code" = 403 ] && [ "$(p1_calls)" = 3 ] && echo yes || echo no)"
+
+    # Isolamento: il nonce del sito A non vale sul sito B; con opt-in spento B non mostra il form.
+    fetch "$P1_JAR_B" "$BASE_B/wp-login.php" >/dev/null
+    code="$(fetch "$P1_JAR_B" "$BASE_B/wp-login.php" --data-urlencode "log=adminb" --data-urlencode "pwd=$PASS_B" \
+        --data-urlencode "wp-submit=Log In" --data-urlencode "redirect_to=$BASE_B/wp-admin/" --data-urlencode testcookie=1)"
+    check 'p1_login_admin_b' "$([ "$code" = 302 ] && echo yes || echo no)"
+    code="$(fetch "$P1_JAR_B" "$BASE_B/wp-admin/tools.php?page=seo-lab&report=$U07B")"
+    check 'p1_b_nessun_form_ai_con_opt_in_spento' "$(has 'seo_lab_ai_preview' && echo no || echo yes)"
+    code="$(fetch "$P1_JAR_B" "$BASE_B/wp-admin/admin-post.php" "${CONFIRM_ARGS[@]}")"
+    check 'p1_nonce_di_a_non_vale_su_b' "$([ "$code" = 403 ] && echo yes || echo no)"
+    check 'p1_nessuna_richiesta_verso_provider' "$([ "$(p1_egress)" = 0 ] && echo yes || echo no)"
+    check 'p1_chiamate_solo_del_flusso' "$([ "$(p1_calls)" = 3 ] && echo yes || echo no)"
+}
+
+if [ "$P1_AI" = 1 ]; then
+    p1_ai_flow
+fi
+
 # --- Fase 1: senza Yoast ---
+if [ "$P1_AI" != 1 ]; then
 JAR_ANON=/tmp/s4-jar-anon
 JAR_A=/tmp/s4-jar-a
 JAR_B=/tmp/s4-jar-b
@@ -478,8 +684,10 @@ PROBE_TOTAL="$(grep -c '"check"' "$SANDBOX/s4-wp-check-a.jsonl")"
 grep '"ok":false' "$SANDBOX/s4-wp-check-a.jsonl"
 check "sonda_wp_blog_a_${PROBE_TOTAL}_controlli" "$([ "$PROBE_RC" -eq 0 ] && [ "$PROBE_TOTAL" -gt 0 ] && [ "$PROBE_FAILS" -eq 0 ] && echo yes || echo no)"
 
-# --- P-005 (solo modalita' ZIP): disattivazione conserva i dati, uninstall di WordPress elimina solo i dati SEO Lab ---
-if [ -n "$RELEASE_ZIP" ]; then
+fi
+
+# --- P-005 (modalita' ZIP o --p1-ai): disattivazione conserva i dati, uninstall di WordPress elimina solo i dati SEO Lab ---
+if [ -n "$RELEASE_ZIP" ] || [ "$P1_AI" = 1 ]; then
     SITE_C="$(wpcli site create --slug=sitio-c --title='Sito C sintetico' --email=s5-c@example.invalid --porcelain)" || exit 1
     export S5_TABLE_BLOGS="1 $SITE_B"
     S5_RUNS=0
@@ -512,14 +720,21 @@ if [ -n "$RELEASE_ZIP" ]; then
     P5_FAILS="$(grep -c '"ok":false' "$SANDBOX/s5-p005.jsonl")"
     grep '"ok":false' "$SANDBOX/s5-p005.jsonl"
     check "p005_uninstall_wp_${P5_TOTAL}_controlli" "$([ "$P5_TOTAL" -gt 0 ] && [ "$P5_FAILS" -eq 0 ] && echo yes || echo no)"
-    cp "$SANDBOX/s5-p005.jsonl" "$ROOT/.ai/20_execution/s5-p005-wp.jsonl"
+    if [ "$P1_AI" = 1 ]; then
+        mkdir -p "$ROOT/.ai/20_execution/p1-2"
+        cp "$SANDBOX/s5-p005.jsonl" "$ROOT/.ai/20_execution/p1-2/s5-p005-wp.jsonl"
+    else
+        cp "$SANDBOX/s5-p005.jsonl" "$ROOT/.ai/20_execution/s5-p005-wp.jsonl"
+    fi
 fi
 
 echo "Esito: passati=$PASSED, falliti=$FAILS"
 EVIDENCE="$ROOT/.ai/20_execution"
 mkdir -p "$EVIDENCE"
-cp "$SANDBOX/s4-wp-check-a.jsonl" "$EVIDENCE/s4-wp-check-a.jsonl"
-cp "$SANDBOX/s4-wp-window-a.jsonl" "$EVIDENCE/s4-wp-window-a.jsonl"
+if [ "$P1_AI" != 1 ]; then
+    cp "$SANDBOX/s4-wp-check-a.jsonl" "$EVIDENCE/s4-wp-check-a.jsonl"
+    cp "$SANDBOX/s4-wp-window-a.jsonl" "$EVIDENCE/s4-wp-window-a.jsonl"
+fi
 DEBUG_LINES="$(docker exec "$WEB_NAME" sh -c 'cat /var/www/html/wp-content/debug.log 2>/dev/null' | grep -c 'plugins/seo-lab/' || true)"
 DEBUG_SEEN="$(docker exec "$WEB_NAME" sh -c 'test -f /var/www/html/wp-content/debug.log && echo si || echo no')"
 echo "info debug_log_presente=$DEBUG_SEEN righe_plugin=$DEBUG_LINES"

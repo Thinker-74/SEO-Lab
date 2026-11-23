@@ -4,12 +4,19 @@ declare(strict_types=1);
 
 namespace SeoLab\Admin;
 
+use SeoLab\Ai\ReviewConfirmation;
+use SeoLab\Ai\ReviewProvider;
+use SeoLab\Ai\WordPressAiRuntime;
+use SeoLab\Ai\WordPressReviewProvider;
 use SeoLab\Capture\SafeHttpCapturer;
 use SeoLab\Capture\SystemAddressResolver;
 use SeoLab\Contracts\ObservedSnapshot;
+use SeoLab\Contracts\ScanReport;
 use SeoLab\Diagnosis\ScanService;
 use SeoLab\Expected\YoastExpectedProvider;
 use SeoLab\Storage\Cooldown;
+use SeoLab\Storage\WordPressAiLedger;
+use SeoLab\Storage\WordPressAiLedgerStore;
 use SeoLab\Storage\WordPressReportArchive;
 
 /**
@@ -21,6 +28,7 @@ final class Plugin
     private const COOLDOWN_OPTION = 'seolab_scan_last';
     private const COOLDOWN_SECONDS = 10;
     private const PAGE = 'seo-lab';
+    private const AI_PAGE = 'seo-lab-ai';
 
     public static function boot(): void
     {
@@ -32,6 +40,9 @@ final class Plugin
         add_action('admin_post_seo_lab_scan', [self::class, 'handleScan']);
         add_action('admin_post_seo_lab_verify', [self::class, 'handleVerify']);
         add_action('admin_post_seo_lab_export', [self::class, 'handleExport']);
+        add_action('admin_post_seo_lab_ai_settings', [self::class, 'handleAiSettings']);
+        add_action('admin_post_seo_lab_ai_preview', [self::class, 'handleAiPreview']);
+        add_action('admin_post_seo_lab_ai_confirm', [self::class, 'handleAiConfirm']);
     }
 
     public static function loadTextDomain(): void
@@ -48,6 +59,121 @@ final class Plugin
             self::PAGE,
             [AdminScreen::class, 'render']
         );
+        add_options_page(
+            __('SEO Lab AI', 'seo-lab'),
+            __('SEO Lab AI', 'seo-lab'),
+            'manage_options',
+            self::AI_PAGE,
+            [self::class, 'renderAiSettings']
+        );
+    }
+
+    public static function renderAiSettings(): void
+    {
+        if (!current_user_can('manage_options')) {
+            wp_die(esc_html__('You are not allowed to access this page.', 'seo-lab'));
+        }
+        $saved = isset($_GET['saved']) && sanitize_key(wp_unslash((string) $_GET['saved'])) === '1';
+        echo AiReviewView::settings(
+            self::optInEnabled(),
+            WordPressAiRuntime::status(true),
+            admin_url('admin-post.php'),
+            wp_create_nonce('seo_lab_ai_settings_' . get_current_blog_id()),
+            $saved
+        );
+    }
+
+    public static function handleAiSettings(): void
+    {
+        self::respondAi(self::aiActions()->settings(self::method(), self::request()));
+    }
+
+    public static function handleAiPreview(): void
+    {
+        self::respondAi(self::aiActions()->preview(self::method(), self::request()));
+    }
+
+    public static function handleAiConfirm(): void
+    {
+        self::respondAi(self::aiActions()->confirm(self::method(), self::request()));
+    }
+
+    /**
+     * Form «Analizza con AI» per il rapporto singolo. Con opt-in spento non legge il registry dei connettori.
+     */
+    public static function aiReviewForm(ScanReport $report): string
+    {
+        if (!self::optInEnabled() || WordPressAiRuntime::status(true) !== 'core_available') {
+            return '';
+        }
+        if ($report->findings() === [] || !self::eligible($report->postId())) {
+            return '';
+        }
+        $providers = array_values(array_filter(['openai', 'anthropic'], [WordPressReviewProvider::class, 'isConfiguredLocally']));
+        if ($providers === []) {
+            return '';
+        }
+        $nonce = wp_create_nonce(ReviewConfirmation::phaseAction('preview', (string) get_current_blog_id(), $report->scanId()));
+        return AiReviewView::reviewForm($report->scanId(), $providers, admin_url('admin-post.php'), $nonce);
+    }
+
+    /**
+     * Servizi della revisione AI per la richiesta corrente. Il registro e il provider sono costruiti qui.
+     */
+    public static function aiActions(): AiReviewActions
+    {
+        return new AiReviewActions(
+            (string) get_current_blog_id(),
+            static function (): bool {
+                return !is_network_admin() && !ms_is_switched();
+            },
+            static function (): bool {
+                return current_user_can('manage_options');
+            },
+            static function (): int {
+                return (int) get_current_user_id();
+            },
+            static function (string $action, string $value): bool {
+                return wp_verify_nonce($value, $action) !== false;
+            },
+            static function (string $action): string {
+                return (string) wp_create_nonce($action);
+            },
+            static function (): int {
+                return time();
+            },
+            static function (): string {
+                return bin2hex(random_bytes(16));
+            },
+            [self::class, 'optInEnabled'],
+            static function (string $value): bool {
+                if (add_option(AiReviewActions::OPTION, $value, '', 'no')) {
+                    return true;
+                }
+                return update_option(AiReviewActions::OPTION, $value, 'no') || get_option(AiReviewActions::OPTION, '') === $value;
+            },
+            static function (bool $enabled): string {
+                return WordPressAiRuntime::status($enabled);
+            },
+            new WordPressReportArchive(),
+            [self::class, 'eligible'],
+            [WordPressReviewProvider::class, 'isConfiguredLocally'],
+            new WordPressAiLedger(new WordPressAiLedgerStore()),
+            static function (bool $enabled, string $provider, string $model, callable $admit): ReviewProvider {
+                return new WordPressReviewProvider($enabled, $provider, $model, $admit);
+            },
+            admin_url('admin-post.php'),
+            admin_url('options-general.php?page=' . self::AI_PAGE),
+            admin_url('tools.php?page=' . self::PAGE)
+        );
+    }
+
+    /**
+     * Opt-in del sito: assente o valore diverso da '1' significa spento.
+     */
+    public static function optInEnabled(): bool
+    {
+        return get_option(AiReviewActions::OPTION, '0') === '1';
     }
 
     public static function handleScan(): void
@@ -178,6 +304,25 @@ final class Plugin
             exit;
         }
         self::fail((string) $result['error']);
+    }
+
+    /**
+     * Risposta della revisione AI: redirect senza contenuto AI, oppure HTML privato non memorizzabile.
+     *
+     * @param array{status: int, body: string, location: string|null} $response
+     */
+    private static function respondAi(array $response): void
+    {
+        if ($response['location'] !== null) {
+            wp_safe_redirect($response['location']);
+            exit;
+        }
+        http_response_code($response['status']);
+        header('Cache-Control: private, no-store, max-age=0');
+        header('Content-Type: text/html; charset=utf-8');
+        header('X-Content-Type-Options: nosniff');
+        echo $response['body'];
+        exit;
     }
 
     private static function fail(string $code): void

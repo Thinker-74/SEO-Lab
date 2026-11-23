@@ -252,3 +252,150 @@ msgstr "Nodo JSON-LD atteso mancante"
 
 msgid "The public output lacks a JSON-LD node that Yoast expects. Check whether the schema output is disabled or replaced by another plugin."
 msgstr "Nell'output pubblico manca un nodo JSON-LD che Yoast prevede. Verifica se l'output dello schema è disattivato o sostituito da un altro plugin."
+
+msgid "AI review"
+msgstr "Revisione AI"
+
+msgid "AI review is off on this site."
+msgstr "La revisione AI è disattivata su questo sito."
+
+msgid "AI review is optional and off by default. Nothing is sent to a provider unless you turn it on and approve each request."
+msgstr "La revisione AI è facoltativa e disattivata per impostazione predefinita. Non viene inviato nulla a un provider finché non la attivi e non approvi ogni singola richiesta."
+
+msgid "Analyze with AI"
+msgstr "Analizza con AI"
+
+msgid "Back"
+msgstr "Indietro"
+
+msgid "Back to the report"
+msgstr "Torna al rapporto"
+
+msgid "Choose a language"
+msgstr "Scegli una lingua"
+
+msgid "Choose a provider"
+msgstr "Scegli un provider"
+
+msgid "Data (only the findings of the report, no page values)"
+msgstr "Dati (solo i finding del rapporto, nessun valore della pagina)"
+
+msgid "English"
+msgstr "Inglese"
+
+msgid "Explanation"
+msgstr "Spiegazione"
+
+msgid "Hypothesis"
+msgstr "Ipotesi"
+
+msgid "Instructions (system)"
+msgstr "Istruzioni (system)"
+
+msgid "Italian"
+msgstr "Italiano"
+
+msgid "Language"
+msgstr "Lingua"
+
+msgid "Language of the content"
+msgstr "Lingua del contenuto"
+
+msgid "Maximum output"
+msgstr "Output massimo"
+
+msgid "Model ID"
+msgstr "ID del modello"
+
+msgid "Off"
+msgstr "Disattivata"
+
+msgid "On"
+msgstr "Attivata"
+
+msgid "Preview"
+msgstr "Anteprima"
+
+msgid "Provider"
+msgstr "Provider"
+
+msgid "Provider keys stay in WordPress Connectors. SEO Lab does not store them."
+msgstr "Le chiavi dei provider restano in WordPress Connectors. SEO Lab non le memorizza."
+
+msgid "Request preview"
+msgstr "Anteprima della richiesta"
+
+msgid "Rule %1$s, evidence %2$d (%3$s)"
+msgstr "Regola %1$s, evidenza %2$d (%3$s)"
+
+msgid "Rule %s"
+msgstr "Regola %s"
+
+msgid "Save"
+msgstr "Salva"
+
+msgid "Send a request"
+msgstr "Invia una richiesta"
+
+msgid "SEO Lab AI"
+msgstr "SEO Lab AI"
+
+msgid "Settings saved."
+msgstr "Impostazioni salvate."
+
+msgid "Suggested test"
+msgstr "Test suggerito"
+
+msgid "Technical reserve"
+msgstr "Riserva tecnica"
+
+msgid "The AI answer was not valid and was not shown."
+msgstr "La risposta dell'AI non era valida e non è stata mostrata."
+
+msgid "The AI provider cannot answer now. Nothing was stored."
+msgstr "Il provider AI non può rispondere ora. Non è stato salvato nulla."
+
+msgid "The AI review could not be completed."
+msgstr "La revisione AI non è stata completata."
+
+msgid "The daily AI limit of this site is reached. Nothing was sent."
+msgstr "Il limite giornaliero AI di questo sito è stato raggiunto. Non è stato inviato nulla."
+
+msgid "The provider is not configured in WordPress Connectors."
+msgstr "Il provider non è configurato in WordPress Connectors."
+
+msgid "The request changed or expired. Preview it again before sending."
+msgstr "La richiesta è cambiata o è scaduta. Mostra di nuovo l'anteprima prima di inviarla."
+
+msgid "This report cannot be reviewed: it has no findings or the content is no longer eligible."
+msgstr "Questo rapporto non può essere revisionato: non ha finding oppure il contenuto non è più idoneo."
+
+msgid "This text was produced by an AI model. Check it against the report before acting."
+msgstr "Questo testo è stato prodotto da un modello AI. Verificalo sul rapporto prima di agire."
+
+msgid "This WordPress version does not offer AI review. Only the standard SEO Lab reports are available."
+msgstr "Questa versione di WordPress non offre la revisione AI. Restano disponibili i rapporti standard di SEO Lab."
+
+msgid "This WordPress version does not offer AI review. SEO Lab works as usual."
+msgstr "Questa versione di WordPress non offre la revisione AI. SEO Lab funziona come sempre."
+
+msgid "tokens"
+msgstr "token"
+
+msgid "Tokens reported by the provider"
+msgstr "Token riportati dal provider"
+
+msgid "Too many AI requests in a short time. Try again later."
+msgstr "Troppe richieste AI in poco tempo. Riprova più tardi."
+
+msgid "units (operational estimate, not the provider invoice)"
+msgstr "unità (stima operativa, non la fattura del provider)"
+
+msgid "WordPress AI is available on this site."
+msgstr "WordPress AI è disponibile su questo sito."
+
+msgid "WordPress AI is turned off on this site: AI review cannot run."
+msgstr "WordPress AI è disattivato su questo sito: la revisione AI non può essere eseguita."
+
+msgid "You will see the exact text sent before anything is sent."
+msgstr "Vedrai il testo esatto che verrà inviato prima dell'invio."

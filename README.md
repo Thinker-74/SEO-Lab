@@ -7,7 +7,8 @@ Find the conflict. Test the cause. Verify the fix.
 Plugin WordPress in sola lettura che confronta i dati SEO attesi di una pagina (valori risolti da Yoast SEO) con l'output pubblico che il sito serve davvero, e segnala le differenze con evidenza, stato della causa (confermata, probabile, possibile o sconosciuta) e istruzioni per verificarle.
 
 > SEO Lab è il nome attuale del progetto. Il nome commerciale sarà scelto prima della pubblicazione su WordPress.org; repository, codice e documenti non vengono rinominati fino ad allora.
-> Stato: P0 in validazione (versione 0.2.0). Non è ancora una release stabile: vedi [docs/compatibility.md](docs/compatibility.md) per le versioni provate e i limiti.
+> Stato: P1 in validazione (versione di sviluppo 0.2.0). Non è ancora una release stabile: vedi [docs/compatibility.md](docs/compatibility.md) per le versioni provate e i limiti.
+> Nel candidato P1 la revisione AI è verificata con test simulati e prove mirate su una fixture sintetica con OpenAI e Anthropic. Nella prova OpenAI il runner ha impostato `reasoning.effort=none`.
 
 ## Cosa controlla
 
@@ -20,8 +21,8 @@ Ogni esito riporta uno stato separato per anomalia, causa, scansione e severità
 
 ## Cosa non fa
 
-- Non modifica contenuti, impostazioni, tema o plugin del sito. Non emette canonical, robots, JSON-LD, sitemap o `robots.txt`.
-- Non chiama API di intelligenza artificiale né servizi cloud. Non richiede Python né servizi esterni.
+- Non modifica contenuti, tema, plugin o impostazioni degli altri componenti del sito. Non emette canonical, robots, JSON-LD, sitemap o `robots.txt`. Le sue scritture riguardano solo le impostazioni, i report e il registro delle richieste AI di SEO Lab.
+- La diagnosi standard non chiama API di intelligenza artificiale né servizi cloud e non richiede Python né servizi esterni. La revisione AI è facoltativa e spenta di default (vedi Uso).
 - Non analizza URL liberi: acquisisce solo il permalink di un post o una pagina pubblicati.
 - Non invia cookie o credenziali. Non esegue JavaScript.
 
@@ -29,6 +30,7 @@ Ogni esito riporta uno stato separato per anomalia, causa, scansione e severità
 
 - Versioni minime di WordPress e PHP non ancora dichiarate: le versioni provate sono elencate in [docs/compatibility.md](docs/compatibility.md).
 - Yoast SEO: il confronto è disponibile solo per le versioni verificate (oggi 28.9). Senza Yoast o con una versione non verificata, il confronto è disattivato e il report lo dichiara.
+- Revisione AI (facoltativa): WordPress con le API AI e un connettore OpenAI o Anthropic configurato. Senza di essi la funzione resta disattivata e la pagina SEO Lab AI lo dichiara.
 
 ## Installazione
 
@@ -41,6 +43,7 @@ Ogni esito riporta uno stato separato per anomalia, causa, scansione e severità
 - **Scan**: nel pannello, sul post o sulla pagina scelti, avvia una scansione. Il plugin acquisisce la pagina pubblica una volta e confronta l'output con il valore atteso.
 - **Verify**: rilancia l'acquisizione per un report esistente e mostra il diff `resolved`, `persists` o `changed`.
 - **Export**: scarica il report in JSON, con un insieme di campi fisso.
+- **Revisione AI (facoltativa)**: spenta di default, si attiva per sito nella pagina SEO Lab AI. Le chiavi restano nei Connettori di WordPress e SEO Lab non le memorizza. Prima di ogni invio il plugin mostra l'anteprima con provider, modello, lingua, limiti e il testo esatto delle istruzioni e dei dati; la richiesta parte solo dopo conferma. Al provider vanno le regole, le versioni, gli stati, la gravità e gli ID delle evidenze (per esempio `CANONICAL_EXPECTED_MISMATCH:1`), mai i valori né gli estratti, che restano nel rapporto. Il testo generato va verificato nel rapporto prima di agire.
 - Ogni azione richiede la capability `manage_options` e un nonce legato al sito e al report. Le richieste ripetute sullo stesso sito entro 10 secondi vengono rifiutate.
 
 ## Limiti di osservazione
