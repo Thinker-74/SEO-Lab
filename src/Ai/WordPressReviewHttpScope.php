@@ -41,13 +41,21 @@ final class WordPressReviewHttpScope
     /** @var string|null */
     private $reason;
 
+    /** @var bool */
+    private $watchTruncation;
+
+    /** @var bool */
+    private $truncated = false;
+
     /**
-     * @param callable $now Orologio monotono in nanosecondi, restituisce int.
+     * @param callable $now             Orologio monotono in nanosecondi, restituisce int.
+     * @param bool     $watchTruncation Osserva il segnale stop_reason=max_tokens nella risposta della POST ammessa.
      */
-    public function __construct(string $host, callable $now)
+    public function __construct(string $host, callable $now, bool $watchTruncation = false)
     {
         $this->host = $host;
         $this->now = $now;
+        $this->watchTruncation = $watchTruncation;
     }
 
     public function enter(): void
@@ -57,15 +65,28 @@ final class WordPressReviewHttpScope
         $this->active = true;
         add_filter('http_request_args', [$this, 'filterArgs'], PHP_INT_MAX, 2);
         add_filter('pre_http_request', [$this, 'filterPre'], PHP_INT_MAX, 3);
+        if ($this->watchTruncation) {
+            add_filter('http_response', [$this, 'filterResponse'], PHP_INT_MAX, 3);
+        }
     }
 
     public function leave(): void
     {
         remove_filter('http_request_args', [$this, 'filterArgs'], PHP_INT_MAX);
         remove_filter('pre_http_request', [$this, 'filterPre'], PHP_INT_MAX);
+        remove_filter('http_response', [$this, 'filterResponse'], PHP_INT_MAX);
         $this->active = false;
         $this->method = null;
         $this->path = null;
+        $this->truncated = false;
+    }
+
+    /**
+     * Vero solo se la POST ammessa ha ricevuto HTTP 200 con messaggio Messages strutturato e stop_reason=max_tokens.
+     */
+    public function truncated(): bool
+    {
+        return $this->truncated;
     }
 
     /**
@@ -142,6 +163,46 @@ final class WordPressReviewHttpScope
             $this->reason = $refusal;
         }
         return new \WP_Error('seo_lab_review_' . $refusal, 'richiesta bloccata dalla guardia');
+    }
+
+    /**
+     * Solo osservazione: restituisce la risposta invariata e conserva un booleano. Il corpo non esce da questo metodo.
+     *
+     * @param mixed $response
+     * @param mixed $args
+     * @param mixed $url
+     * @return mixed
+     */
+    public function filterResponse($response, $args = [], $url = '')
+    {
+        if (!$this->active || $this->truncated || !is_array($response) || !is_array($args) || !is_string($url)) {
+            return $response;
+        }
+        if ($this->attempts !== 1 || $this->method !== 'POST' || strtoupper((string) ($args['method'] ?? 'GET')) !== 'POST') {
+            return $response;
+        }
+        if (!$this->isAllowedUrl($url) || !$this->isTruncatedMessage($response)) {
+            return $response;
+        }
+        $this->truncated = true;
+        return $response;
+    }
+
+    /**
+     * @param array<string, mixed> $response
+     */
+    private function isTruncatedMessage(array $response): bool
+    {
+        $status = is_array($response['response'] ?? null) ? ($response['response']['code'] ?? null) : null;
+        $body = $response['body'] ?? null;
+        if ((int) $status !== 200 || !is_string($body) || strlen($body) > self::MAX_RESPONSE_BYTES) {
+            return false;
+        }
+        $message = json_decode($body, true);
+        return is_array($message)
+            && ($message['type'] ?? null) === 'message'
+            && is_array($message['content'] ?? null)
+            && ($message['stop_reason'] ?? null) === 'max_tokens';
     }
 
     private function refusal(array $args, string $url): ?string

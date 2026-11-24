@@ -23,6 +23,7 @@ final class ReviewResult
         'rate_limited',
         'budget_exhausted',
         'provider_error',
+        'output_truncated',
     ];
 
     private const KINDS = ['explanation', 'hypothesis', 'suggested_test'];

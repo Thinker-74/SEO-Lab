@@ -350,6 +350,8 @@ final class P1aEnv
         switch ($this->script) {
             case 'provider_error':
                 return ReviewResult::failure('provider_error');
+            case 'output_truncated':
+                return ReviewResult::failure('output_truncated');
             case 'unknown_ref':
                 return ReviewResult::fromJson(p1a_json([['explanation', 'Spiegazione.', ['NOPE:9']], ['suggested_test', 'Test.', [$first]]]), $request);
             case 'bidi_only':
@@ -654,11 +656,68 @@ p1a_case('anteprima: nessuna scrittura, nessuna riserva, nessuna chiamata al mod
 p1a_case('vista: entita\' gia\' presenti nel testo restano visibili come entita\' (doppia codifica)', static function (): void {
     $html = AiReviewView::preview([
         'reportId' => P1A_UUID_07, 'provider' => 'openai', 'model' => 'gpt-test-1', 'language' => 'it',
-        'system' => 'a &amp; <b>', 'data' => '{"x":"&lt;"}', 'units' => 1, 'issuedAt' => 1, 'confirmationId' => str_repeat('a', 32),
+        'system' => 'a &amp; <b>', 'data' => '{"x":"&lt;"}', 'units' => 1, 'maxOutput' => 768, 'reasoningEffort' => null,
+        'issuedAt' => 1, 'confirmationId' => str_repeat('a', 32),
         'phaseNonce' => 'p', 'contextNonce' => 'c',
     ], 'https://site.example/wp-admin/admin-post.php');
     preg_match('#<pre>(.*?)</pre>#s', $html, $m);
     p1a_assert($m[1] === 'a &amp;amp; &lt;b&gt;', 'codifica del system non letterale: ' . $m[1]);
+});
+
+p1a_case('anteprima gpt-6-luna: cap 768, profilo effort none e addebito dichiarato; nessun output non verificato', static function (): void {
+    $env = new P1aEnv();
+    $response = $env->controller()->preview('POST', p1a_preview_request($env, P1A_UUID_07, 'openai', 'gpt-6-luna', 'it'));
+    p1a_assert(p1a_status($response) === 200, 'anteprima non 200');
+    p1a_assert(strpos($response['body'], '768 tokens') !== false, 'cap 768 assente');
+    p1a_assert(strpos($response['body'], 'gpt-6-luna: reasoning effort none for this request') !== false, 'profilo Luna assente');
+    p1a_assert(strpos($response['body'], 'not verified') === false, 'output non verificato mostrato per Luna');
+    p1a_assert(strpos($response['body'], 'Sending the request can be charged by the provider') !== false, 'avviso di addebito assente');
+    p1a_assert(strpos($response['body'], 'reasoning tokens count toward the maximum output') !== false, 'token di ragionamento fuori dal cap');
+});
+
+p1a_case('anteprima altro ID OpenAI: comportamento del connettore, output a questo limite non verificato', static function (): void {
+    $env = new P1aEnv();
+    $response = $env->controller()->preview('POST', p1a_preview_request($env, P1A_UUID_07, 'openai', 'gpt-test-1', 'it'));
+    p1a_assert(p1a_status($response) === 200, 'anteprima non 200');
+    p1a_assert(strpos($response['body'], 'The model uses the connector default. Output at this limit is not verified for this model.') !== false, 'comportamento del connettore assente');
+    p1a_assert(strpos($response['body'], 'reasoning effort none') === false, 'profilo Luna applicato a un altro ID');
+});
+
+p1a_case('anteprima Anthropic: addebito dichiarato, nessuna riga di ragionamento', static function (): void {
+    $env = new P1aEnv();
+    $env->providers['anthropic'] = true;
+    $response = $env->controller()->preview('POST', p1a_preview_request($env, P1A_UUID_07, 'anthropic', 'claude-test-1', 'en'));
+    p1a_assert(p1a_status($response) === 200, 'anteprima non 200');
+    p1a_assert(strpos($response['body'], 'Sending the request can be charged by the provider') !== false, 'avviso di addebito assente');
+    p1a_assert(strpos($response['body'], '<th scope="row">Reasoning</th>') === false, 'riga di ragionamento per Anthropic');
+});
+
+p1a_case('conferma gpt-6-luna: nonce di contesto creato prima del profilo -> 409, nessuna ammissione, nessuna POST', static function (): void {
+    $env = new P1aEnv();
+    $report = $env->archive->find(P1A_UUID_07);
+    $prompt = ReviewPrompt::fromRequest(ReviewRequest::fromReport($report, 'it'));
+    $confirmationId = str_repeat('c', 32);
+    // Tupla come prima dell'aggiunta del profilo: nessuna chiave reasoning_effort.
+    $oldDigest = ReviewConfirmation::digest(ReviewConfirmation::tuple(
+        $env->blog, $env->user, P1A_UUID_07, ReviewConfirmation::reportDigest($report), 'openai', 'gpt-6-luna', 'it', $prompt, $env->now, $confirmationId
+    ));
+    $request = [
+        'report' => P1A_UUID_07,
+        'provider' => 'openai',
+        'model' => 'gpt-6-luna',
+        'language' => 'it',
+        'issued_at' => (string) $env->now,
+        'confirmation_id' => $confirmationId,
+        'seo_lab_nonce' => $env->nonce(ReviewConfirmation::phaseAction('confirm', $env->blog, P1A_UUID_07)),
+        'seo_lab_ctx_nonce' => $env->nonce(ReviewConfirmation::contextAction((string) $oldDigest)),
+    ];
+    $response = $env->controller()->confirm('POST', $request);
+    p1a_assert(p1a_status($response) === 409, 'stato ' . p1a_status($response));
+    p1a_assert($env->modelCalls === 0 && $env->store->writes === 0, 'ammissione o POST con nonce pre-profilo');
+
+    $preview = $env->controller()->preview('POST', p1a_preview_request($env, P1A_UUID_07, 'openai', 'gpt-6-luna', 'it'));
+    p1a_assert(p1a_status($env->controller()->confirm('POST', p1a_confirm_request($preview['body']))) === 200, 'anteprima nuova non confermata');
+    p1a_assert($env->modelCalls === 1, 'modello non chiamato una volta dopo l\'anteprima nuova');
 });
 
 // ---------------------------------------------------------------------------
@@ -791,6 +850,20 @@ p1a_case('conferma: errore del provider dopo la riserva mantiene il conteggio', 
     p1a_assert($env->store->writes === 1, 'tentativo ammesso non conteggiato dopo errore');
     p1a_assert(strpos($response['body'], 'cannot answer now') !== false, 'messaggio locale assente');
     p1a_assert(strpos($response['body'], P1A_SENTINEL) === false, 'segreto nell\'esito');
+});
+
+p1a_case('conferma: risposta troncata -> 503 output_truncated, una riserva, replay bloccato, nessun testo parziale', static function (): void {
+    $env = new P1aEnv();
+    $env->script = 'output_truncated';
+    $preview = $env->controller()->preview('POST', p1a_preview_request($env, P1A_UUID_07));
+    $request = p1a_confirm_request($preview['body']);
+    $response = $env->controller()->confirm('POST', $request);
+    p1a_assert(p1a_status($response) === 503, 'troncamento non 503');
+    p1a_assert(strpos($response['body'], 'reached the output limit and was not shown') !== false, 'messaggio output_truncated assente');
+    p1a_assert($env->store->writes === 1, 'tentativo ammesso non conteggiato una volta');
+    p1a_assert(strpos($response['body'], 'schema_version') === false && strpos($response['body'], P1A_SENTINEL) === false, 'testo parziale o segreto nell\'esito');
+    p1a_assert(p1a_status($env->controller()->confirm('POST', $request)) !== 200, 'replay della conferma non bloccato');
+    p1a_assert($env->modelCalls === 1 && $env->store->writes === 1, 'replay ha inviato o riservato di nuovo');
 });
 
 // ---------------------------------------------------------------------------

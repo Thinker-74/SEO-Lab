@@ -40,6 +40,8 @@ final class ReviewConfirmation
     /**
      * Tupla firmata. Ogni chiave e' un campo che la conferma rilegge e ricalcola dal server.
      *
+     * Il profilo di ragionamento entra nella tupla solo se presente: le tuple senza profilo restano invariate.
+     *
      * @param array{system: string, data: string} $prompt
      * @return array<string, mixed>
      */
@@ -53,9 +55,10 @@ final class ReviewConfirmation
         string $language,
         array $prompt,
         int $issuedAt,
-        string $confirmationId
+        string $confirmationId,
+        ?string $reasoningEffort = null
     ): array {
-        return [
+        $tuple = [
             'blog_id' => $blogId,
             'user_id' => $userId,
             'report_id' => $reportId,
@@ -70,6 +73,10 @@ final class ReviewConfirmation
             'issued_at' => $issuedAt,
             'confirmation_id' => $confirmationId,
         ];
+        if ($reasoningEffort !== null) {
+            $tuple['reasoning_effort'] = $reasoningEffort;
+        }
+        return $tuple;
     }
 
     /**

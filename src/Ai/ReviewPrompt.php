@@ -36,6 +36,7 @@ final class ReviewPrompt
             'Reply with JSON only, no markdown, exactly this shape:',
             '{"schema_version":"' . ReviewRequest::SCHEMA_VERSION . '","items":[{"kind":"explanation|hypothesis|suggested_test","text":"...","refs":["..."]}]}',
             'Include at least one explanation item and at least one suggested_test item; at most 8 items in total.',
+            'Prefer two or three concise items. Put the most useful items first, and add more only when they provide distinct guidance.',
             'Each item has 1 to 4 refs, copied exactly from rule_id or evidence ref values present in the data.',
             'Write each text in ' . $language . ', at most 768 bytes, no control characters.',
             'Do not invent values, causes or states. If the evidence is insufficient, say so.',

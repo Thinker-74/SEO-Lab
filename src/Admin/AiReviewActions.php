@@ -224,6 +224,8 @@ final class AiReviewActions
             'system' => $prompt['system'],
             'data' => $prompt['data'],
             'units' => WordPressAiLedger::estimateUnits($prompt),
+            'maxOutput' => WordPressReviewProvider::MAX_OUTPUT_TOKENS,
+            'reasoningEffort' => WordPressReviewProvider::reasoningEffort($provider, $model),
             'issuedAt' => $issuedAt,
             'confirmationId' => $confirmationId,
             'phaseNonce' => ($this->createNonce)(ReviewConfirmation::phaseAction('confirm', $this->blogId, $reportId)),
@@ -378,7 +380,8 @@ final class AiReviewActions
             $language,
             $prompt,
             $issuedAt,
-            $confirmationId
+            $confirmationId,
+            WordPressReviewProvider::reasoningEffort($provider, $model)
         ));
     }
 

@@ -286,6 +286,12 @@ msgstr "Inglese"
 msgid "Explanation"
 msgstr "Spiegazione"
 
+msgid "For OpenAI, any reasoning tokens count toward the maximum output."
+msgstr "Per OpenAI, gli eventuali token di ragionamento rientrano nell'output massimo."
+
+msgid "gpt-6-luna: reasoning effort none for this request"
+msgstr "gpt-6-luna: sforzo di ragionamento none per questa richiesta"
+
 msgid "Hypothesis"
 msgstr "Ipotesi"
 
@@ -322,6 +328,9 @@ msgstr "Provider"
 msgid "Provider keys stay in WordPress Connectors. SEO Lab does not store them."
 msgstr "Le chiavi dei provider restano in WordPress Connectors. SEO Lab non le memorizza."
 
+msgid "Reasoning"
+msgstr "Ragionamento"
+
 msgid "Request preview"
 msgstr "Anteprima della richiesta"
 
@@ -340,6 +349,9 @@ msgstr "Invia una richiesta"
 msgid "SEO Lab AI"
 msgstr "SEO Lab AI"
 
+msgid "Sending the request can be charged by the provider at its rates, even when the review returns no results."
+msgstr "L'invio della richiesta può generare addebiti secondo la tariffa del provider, anche quando la revisione non restituisce risultati."
+
 msgid "Settings saved."
 msgstr "Impostazioni salvate."
 
@@ -352,6 +364,9 @@ msgstr "Riserva tecnica"
 msgid "The AI answer was not valid and was not shown."
 msgstr "La risposta dell'AI non era valida e non è stata mostrata."
 
+msgid "The AI answer reached the output limit and was not shown."
+msgstr "La risposta AI ha raggiunto il limite di output e non è stata mostrata."
+
 msgid "The AI provider cannot answer now. Nothing was stored."
 msgstr "Il provider AI non può rispondere ora. Non è stato salvato nulla."
 
@@ -360,6 +375,12 @@ msgstr "La revisione AI non è stata completata."
 
 msgid "The daily AI limit of this site is reached. Nothing was sent."
 msgstr "Il limite giornaliero AI di questo sito è stato raggiunto. Non è stato inviato nulla."
+
+msgid "The assistant interprets only the report references that are available."
+msgstr "L'assistenza interpreta solo i riferimenti del rapporto disponibili."
+
+msgid "The model uses the connector default. Output at this limit is not verified for this model."
+msgstr "Il modello usa il comportamento predefinito del connettore. L'output a questo limite non è verificato per questo modello."
 
 msgid "The provider is not configured in WordPress Connectors."
 msgstr "Il provider non è configurato in WordPress Connectors."

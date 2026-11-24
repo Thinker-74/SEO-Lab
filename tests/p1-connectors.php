@@ -49,6 +49,26 @@ namespace WordPress\AiClient\Providers\Http\DTO {
     }
 }
 
+namespace WordPress\AiClient\Providers\Models\DTO {
+    final class ModelConfig
+    {
+        /** @var array<string, mixed> */
+        private $options = [];
+
+        public static function fromArray(array $array): self
+        {
+            $config = new self();
+            $config->options = $array;
+            return $config;
+        }
+
+        public function getCustomOptions(): array
+        {
+            return $this->options['customOptions'] ?? [];
+        }
+    }
+}
+
 namespace WordPress\AiClient\Results\DTO {
     final class GenerativeAiResult
     {
@@ -56,6 +76,16 @@ namespace WordPress\AiClient\Results\DTO {
         public $modelId;
         public $text;
         public $usage;
+        /** @var string|null Terminazione del primo candidato; null senza candidato. */
+        public $finish = 'stop';
+
+        /**
+         * @return array<int, \P1cCandidate>
+         */
+        public function getCandidates(): array
+        {
+            return $this->finish === null ? [] : [new \P1cCandidate((string) $this->finish)];
+        }
 
         public function getProviderMetadata()
         {
@@ -210,7 +240,9 @@ function wp_safe_remote_request($url, $args = [])
     $method = strtoupper((string) ($args['method'] ?? 'GET'));
     $GLOBALS['p1c']['wire'][] = ['method' => $method, 'url' => $url, 'args' => $args];
     $GLOBALS['p1c']['events'][] = 'send ' . $method . ' ' . $url;
-    return p1c_respond($method);
+    $response = p1c_respond($method);
+    // Come WP_Http: http_response si applica solo a una risposta non WP_Error, dopo il trasporto.
+    return is_array($response) ? apply_filters('http_response', $response, $args, $url) : $response;
 }
 
 function p1c_respond(string $method)
@@ -275,6 +307,36 @@ final class P1cCapability
     public function isTextGeneration(): bool
     {
         return $this->text;
+    }
+}
+
+final class P1cCandidate
+{
+    private $finish;
+
+    public function __construct(string $finish)
+    {
+        $this->finish = $finish;
+    }
+
+    public function getFinishReason(): P1cFinishReason
+    {
+        return new P1cFinishReason($this->finish);
+    }
+}
+
+final class P1cFinishReason
+{
+    private $value;
+
+    public function __construct(string $value)
+    {
+        $this->value = $value;
+    }
+
+    public function isStop(): bool
+    {
+        return $this->value === 'stop';
     }
 }
 
@@ -357,8 +419,9 @@ final class P1cModel implements TextGenerationModelInterface
         $result = new GenerativeAiResult();
         $result->providerId = $GLOBALS['p1c']['result_provider'] ?? $this->provider;
         $result->modelId = $GLOBALS['p1c']['result_model'] ?? $this->id;
-        $result->text = $response['body'];
+        $result->text = p1c_text_of($this->provider, $response['body']);
         $result->usage = $GLOBALS['p1c']['usage'] ?? [0, 0];
+        $result->finish = $GLOBALS['p1c']['finish'];
         return $result;
     }
 }
@@ -439,6 +502,15 @@ final class P1cBuilder
             case 'using_request_options':
                 $this->bag['opts'] = $args[0]->toArray();
                 break;
+            case 'using_model_config':
+                // Come il connettore reale: le opzioni personalizzate finiscono al primo livello del payload.
+                if ($GLOBALS['p1c']['builder_mode'] === 'config_reject') {
+                    throw new InvalidArgumentException('configurazione rifiutata');
+                }
+                foreach ($args[0]->getCustomOptions() as $key => $value) {
+                    $this->bag[$key] = $value;
+                }
+                break;
             case 'generate_text_result':
                 return $this->generate();
         }
@@ -460,6 +532,20 @@ final class P1cBuilder
         $this->bag['prompt'] = $this->prompt;
         if (!$this->model instanceof TextGenerationModelInterface) {
             return new WP_Error('prompt_builder_error', 'senza modello', ['status' => 500]);
+        }
+        // Dopo l'invio riuscito il builder non restituisce il risultato: WP_Error o eccezione, come il connettore reale.
+        if ($GLOBALS['p1c']['builder_mode'] === 'error_after_send') {
+            $this->model->generateTextResult($this->bag);
+            return new WP_Error('prompt_client_error', 'dopo invio', ['status' => 400]);
+        }
+        // Core: il limite di token di output dell'SDK arriva come WP_Error dopo la POST inviata.
+        if ($GLOBALS['p1c']['builder_mode'] === 'token_limit_after_send') {
+            $this->model->generateTextResult($this->bag);
+            return new WP_Error('prompt_token_limit_reached', 'limite raggiunto', ['status' => 400]);
+        }
+        if ($GLOBALS['p1c']['builder_mode'] === 'throw_after_send') {
+            $this->model->generateTextResult($this->bag);
+            throw new RuntimeException('eccezione dopo invio');
         }
         try {
             return $this->model->generateTextResult($this->bag);
@@ -510,6 +596,46 @@ function p1c_document_json(): string
     ], JSON_UNESCAPED_UNICODE);
 }
 
+/** Testo del messaggio: per Anthropic content[].text dell'envelope Messages; altrimenti il corpo grezzo. */
+function p1c_text_of(string $provider, string $body): string
+{
+    if ($provider !== 'anthropic') {
+        return $body;
+    }
+    $message = json_decode($body, true);
+    if (!is_array($message) || ($message['type'] ?? null) !== 'message' || !is_array($message['content'] ?? null)) {
+        return $body;
+    }
+    $text = '';
+    foreach ($message['content'] as $block) {
+        if (is_array($block) && ($block['type'] ?? null) === 'text') {
+            $text .= (string) ($block['text'] ?? '');
+        }
+    }
+    return $text;
+}
+
+/** Envelope Anthropic Messages con stop_reason e testo del contenuto dati. */
+function p1c_anthropic_envelope(string $stopReason, string $text): string
+{
+    return json_encode([
+        'id' => 'msg_fixture',
+        'type' => 'message',
+        'role' => 'assistant',
+        'model' => 'claude-test-1',
+        'content' => [['type' => 'text', 'text' => $text]],
+        'stop_reason' => $stopReason,
+        'stop_sequence' => null,
+        'usage' => ['input_tokens' => 11, 'output_tokens' => 768],
+    ], JSON_UNESCAPED_UNICODE);
+}
+
+/** JSON di revisione troncato a 60 byte: prefisso di un documento P1.0 valido. */
+function p1c_truncated_text(): string
+{
+    return substr(p1c_document_json(), 0, 60);
+}
+
 function p1c_reset(): void
 {
     $GLOBALS['wp_version'] = '7.1.5';
@@ -521,6 +647,7 @@ function p1c_reset(): void
         'refused' => [],
         'builder' => [],
         'usage' => [11, 22],
+        'finish' => 'stop',
         'post_code' => 200,
         'post_body' => null,
         'post_fail' => false,
@@ -587,7 +714,7 @@ function p1c_no_egress(string $label): void
 
 function p1c_no_filters(): void
 {
-    p1c_assert(empty($GLOBALS['p1c_filters']['http_request_args'] ?? []) && empty($GLOBALS['p1c_filters']['pre_http_request'] ?? []), 'filtri della guardia ancora registrati');
+    p1c_assert(empty($GLOBALS['p1c_filters']['http_request_args'] ?? []) && empty($GLOBALS['p1c_filters']['pre_http_request'] ?? []) && empty($GLOBALS['p1c_filters']['http_response'] ?? []), 'filtri della guardia ancora registrati');
 }
 
 $p1c_pass = [];
@@ -748,6 +875,7 @@ p1c_case('successo openai: POST con system e data byte per byte dal prompt revie
     p1c_assert($body['prompt'] === $prompt['data'], 'data diverso dal payload');
     p1c_assert($body['max_tokens'] === 768, 'max_tokens ' . json_encode($body['max_tokens'] ?? null));
     p1c_assert($body['candidate_count'] === 1, 'candidateCount assente in openai');
+    p1c_assert(strpos($body['system'], 'Prefer two or three concise items. Put the most useful items first, and add more only when they provide distinct guidance.') !== false, 'indicazione di brevita e priorita assente nel system inviato');
 });
 
 p1c_case('successo openai: trasporto con timeout residuo, redirect zero, TLS, zero cookie e limite 256 KiB', static function (): void {
@@ -892,6 +1020,236 @@ p1c_case('risposta: JSON non valido -> invalid_response, un solo POST', static f
 p1c_case('risposta: ritorno inatteso del builder -> invalid_response', static function (): void {
     $GLOBALS['p1c']['builder_mode'] = 'string';
     p1c_assert(p1c_run()->code() === 'invalid_response', 'codice diverso');
+});
+
+// --- Troncamento Anthropic (S-001) -------------------------------------------
+
+p1c_case('troncamento: Anthropic 200 con stop_reason max_tokens -> output_truncated, zero item, usage nullo', static function (): void {
+    $GLOBALS['p1c']['post_body'] = p1c_anthropic_envelope('max_tokens', p1c_truncated_text());
+    $subject = p1c_subject('anthropic', 'claude-test-1', true, 'p1c_admit_null');
+    $result = $subject->review(p1c_request('it'));
+    p1c_assert($result->code() === 'output_truncated', 'codice ' . $result->code());
+    p1c_assert($result->items() === [] && $subject->lastUsage() === null, 'item o usage con troncamento');
+    p1c_assert(count(p1c_posts()) === 1, 'POST diverso da uno');
+    p1c_no_filters();
+});
+
+p1c_case('troncamento: max_tokens con JSON dall\'aspetto valido resta output_truncated', static function (): void {
+    $GLOBALS['p1c']['post_body'] = p1c_anthropic_envelope('max_tokens', p1c_document_json());
+    $result = p1c_run('anthropic', 'claude-test-1');
+    p1c_assert($result->code() === 'output_truncated' && $result->items() === [], 'codice ' . $result->code());
+});
+
+p1c_case('troncamento: end_turn con JSON valido passa invariato', static function (): void {
+    $GLOBALS['p1c']['post_body'] = p1c_anthropic_envelope('end_turn', p1c_document_json());
+    $result = p1c_run('anthropic', 'claude-test-1');
+    p1c_assert($result->code() === null && count($result->items()) === 2, 'esito alterato: ' . $result->code());
+});
+
+p1c_case('troncamento: end_turn con testo parziale resta invalid_response', static function (): void {
+    $GLOBALS['p1c']['post_body'] = p1c_anthropic_envelope('end_turn', p1c_truncated_text());
+    p1c_assert(p1c_run('anthropic', 'claude-test-1')->code() === 'invalid_response', 'codice diverso');
+});
+
+$truncationNegatives = [
+    'messaggio generico, type diverso' => [200, json_encode(['type' => 'error', 'stop_reason' => 'max_tokens', 'content' => [['type' => 'text', 'text' => 'x']]]), 'invalid_response'],
+    'messaggio con content non valido' => [200, json_encode(['type' => 'message', 'stop_reason' => 'max_tokens', 'content' => 'non array']), 'invalid_response'],
+    'HTTP 500 con max_tokens' => [500, '', 'provider_error'],
+];
+foreach ($truncationNegatives as $label => $case) {
+    p1c_case('troncamento negativo: ' . $label . ' -> ' . $case[2] . ', mai output_truncated', static function () use ($case): void {
+        $GLOBALS['p1c']['post_code'] = $case[0];
+        $GLOBALS['p1c']['post_body'] = $case[1] !== '' ? $case[1] : p1c_anthropic_envelope('max_tokens', p1c_truncated_text());
+        $code = p1c_run('anthropic', 'claude-test-1')->code();
+        p1c_assert($code === $case[2], 'codice ' . $code . ', atteso ' . $case[2]);
+    });
+}
+
+p1c_case('troncamento: OpenAI con corpo max_tokens di tipo Anthropic -> invalid_response, segnale non attivo', static function (): void {
+    $GLOBALS['p1c']['post_body'] = p1c_anthropic_envelope('max_tokens', p1c_truncated_text());
+    p1c_assert(p1c_run('openai', 'gpt-test-1')->code() === 'invalid_response', 'OpenAI ha attivato il segnale');
+    p1c_no_filters();
+});
+
+foreach (['error_after_send' => 'WP_Error', 'throw_after_send' => 'eccezione'] as $mode => $label) {
+    p1c_case('troncamento: ' . $label . ' dopo POST troncata -> output_truncated, un POST, filtri rimossi', static function () use ($mode): void {
+        $GLOBALS['p1c']['post_body'] = p1c_anthropic_envelope('max_tokens', p1c_truncated_text());
+        $GLOBALS['p1c']['builder_mode'] = $mode;
+        $subject = p1c_subject('anthropic', 'claude-test-1', true, 'p1c_admit_null');
+        $result = $subject->review(p1c_request('it'));
+        p1c_assert($result->code() === 'output_truncated' && $result->items() === [] && $subject->lastUsage() === null, 'codice ' . $result->code());
+        p1c_assert(count(p1c_posts()) === 1, 'POST diverso da uno');
+        p1c_no_filters();
+    });
+}
+
+p1c_case('troncamento: rifiuto della guardia dopo POST troncata prevale -> provider_error', static function (): void {
+    $GLOBALS['p1c']['post_body'] = p1c_anthropic_envelope('max_tokens', p1c_truncated_text());
+    $GLOBALS['p1c']['attack_at'] = 'generate';
+    $GLOBALS['p1c']['attack_when'] = 'after';
+    $GLOBALS['p1c']['attack'] = ['method' => 'POST', 'url' => 'https://api.anthropic.com/v1/messages', 'args' => []];
+    $result = p1c_run('anthropic', 'claude-test-1');
+    p1c_assert($result->code() === 'provider_error', 'codice ' . $result->code());
+    p1c_no_filters();
+});
+
+p1c_case('troncamento: tentativo troncato seguito da successo sullo stesso adapter non trasferisce il flag', static function (): void {
+    $subject = p1c_subject('anthropic', 'claude-test-1', true, 'p1c_admit_null');
+    $GLOBALS['p1c']['post_body'] = p1c_anthropic_envelope('max_tokens', p1c_truncated_text());
+    p1c_assert($subject->review(p1c_request('it'))->code() === 'output_truncated', 'primo esito diverso');
+    $GLOBALS['p1c']['post_body'] = p1c_anthropic_envelope('end_turn', p1c_document_json());
+    $second = $subject->review(p1c_request('it'));
+    p1c_assert($second->code() === null && count($second->items()) === 2, 'secondo esito: ' . $second->code());
+    p1c_assert($subject->lastUsage() !== null, 'usage assente dopo successo');
+    p1c_assert(count(p1c_posts()) === 2, 'numero di POST diverso da due');
+    p1c_no_filters();
+});
+
+p1c_case('troncamento guardia: segnale solo per POST ammessa su host e percorso attesi, risposta restituita invariata', static function (): void {
+    $url = 'https://api.anthropic.com/v1/messages';
+    $response = ['response' => ['code' => 200, 'message' => 'OK'], 'body' => p1c_anthropic_envelope('max_tokens', p1c_truncated_text()), 'headers' => []];
+    $scope = new WordPressReviewHttpScope('api.anthropic.com', static function (): int {
+        return hrtime(true);
+    }, true);
+    $scope->enter();
+    $scope->allow('POST', '/v1/messages');
+    p1c_assert($scope->filterPre(false, ['method' => 'POST'], $url) === false, 'POST non ammessa');
+    p1c_assert($scope->filterResponse($response, ['method' => 'POST'], $url) === $response, 'risposta alterata');
+    p1c_assert($scope->truncated(), 'segnale assente sulla POST ammessa');
+    $scope->leave();
+    p1c_assert(!$scope->truncated(), 'segnale non azzerato in leave');
+    p1c_no_filters();
+});
+
+p1c_case('troncamento guardia: GET, POST non ammessa, host o percorso diversi non attivano il segnale', static function (): void {
+    $body = p1c_anthropic_envelope('max_tokens', p1c_truncated_text());
+    $clock = static function (): int {
+        return hrtime(true);
+    };
+    $response = ['response' => ['code' => 200, 'message' => 'OK'], 'body' => $body, 'headers' => []];
+
+    $get = new WordPressReviewHttpScope('api.anthropic.com', $clock, true);
+    $get->enter();
+    $get->allow('GET', '/v1/models');
+    $get->filterPre(false, ['method' => 'GET'], 'https://api.anthropic.com/v1/models');
+    $get->filterResponse($response, ['method' => 'GET'], 'https://api.anthropic.com/v1/models');
+    p1c_assert(!$get->truncated(), 'GET ha attivato il segnale');
+    $get->leave();
+
+    $notAdmitted = new WordPressReviewHttpScope('api.anthropic.com', $clock, true);
+    $notAdmitted->enter();
+    $notAdmitted->allow('POST', '/v1/messages');
+    $notAdmitted->filterResponse($response, ['method' => 'POST'], 'https://api.anthropic.com/v1/messages');
+    p1c_assert(!$notAdmitted->truncated(), 'POST senza ammissione ha attivato il segnale');
+    $notAdmitted->leave();
+
+    $otherHost = new WordPressReviewHttpScope('api.anthropic.com', $clock, true);
+    $otherHost->enter();
+    $otherHost->allow('POST', '/v1/messages');
+    $otherHost->filterPre(false, ['method' => 'POST'], 'https://api.anthropic.com/v1/messages');
+    $otherHost->filterResponse($response, ['method' => 'POST'], 'https://evil.example/v1/messages');
+    p1c_assert(!$otherHost->truncated(), 'host diverso ha attivato il segnale');
+    $otherHost->leave();
+    p1c_no_filters();
+});
+
+p1c_case('troncamento guardia: scope senza flag non registra il filtro di risposta', static function (): void {
+    $scope = new WordPressReviewHttpScope('api.openai.com', static function (): int {
+        return hrtime(true);
+    });
+    $scope->enter();
+    p1c_assert(empty($GLOBALS['p1c_filters']['http_response'] ?? []), 'filtro di risposta registrato senza flag');
+    $scope->leave();
+    p1c_no_filters();
+});
+
+// --- Profilo di ragionamento e terminazione OpenAI (S-002) ---------------
+
+p1c_case('profilo: gpt-6-luna invia reasoning effort none, cap 768 invariato, using_model_config ultima scelta', static function (): void {
+    $result = p1c_run('openai', 'gpt-6-luna');
+    p1c_assert($result->code() === null && count($result->items()) === 2, 'esito: ' . $result->code());
+    p1c_assert(count(p1c_posts()) === 1, 'POST non unica');
+    $body = json_decode(p1c_posts()[0]['args']['body'], true);
+    p1c_assert(($body['reasoning'] ?? null) === ['effort' => 'none'], 'reasoning diverso: ' . json_encode($body['reasoning'] ?? null));
+    p1c_assert($body['max_tokens'] === 768, 'cap diverso da 768');
+    p1c_assert(array_slice($GLOBALS['p1c']['builder'], -2) === ['using_model_config', 'generate_text_result'], 'ordine builder: ' . json_encode(array_slice($GLOBALS['p1c']['builder'], -3)));
+});
+
+p1c_case('profilo: ID quasi uguali a gpt-6-luna e altri GPT-6 non ricevono reasoning', static function (): void {
+    foreach (['gpt-6-luna-x', 'GPT-6-LUNA', 'gpt-6-lun', 'gpt-6-sol', 'gpt-6-astra'] as $model) {
+        p1c_reset();
+        $result = p1c_run('openai', $model);
+        p1c_assert($result->code() === null, $model . ': esito ' . $result->code());
+        $body = json_decode(p1c_posts()[0]['args']['body'], true);
+        p1c_assert(!array_key_exists('reasoning', $body), $model . ': reasoning inviato');
+        p1c_assert(!in_array('using_model_config', $GLOBALS['p1c']['builder'], true), $model . ': using_model_config chiamato');
+    }
+});
+
+p1c_case('profilo: anthropic con ID gpt-6-luna non riceve reasoning', static function (): void {
+    p1c_assert(p1c_run('anthropic', 'gpt-6-luna')->code() === null, 'esito diverso');
+    $body = json_decode(p1c_posts()[0]['args']['body'], true);
+    p1c_assert(!array_key_exists('reasoning', $body), 'reasoning inviato ad Anthropic');
+});
+
+p1c_case('profilo: builder che rifiuta la configurazione -> provider_error, nessuna POST', static function (): void {
+    $GLOBALS['p1c']['builder_mode'] = 'config_reject';
+    p1c_assert(p1c_run('openai', 'gpt-6-luna')->code() === 'provider_error', 'codice diverso');
+    p1c_assert(p1c_posts() === [], 'POST con configurazione rifiutata');
+});
+
+p1c_case('risposta OpenAI: senza candidato -> invalid_response, nessun item, nessun usage', static function (): void {
+    $GLOBALS['p1c']['finish'] = null;
+    $subject = p1c_subject('openai', 'gpt-test-1', true, 'p1c_admit_null');
+    $result = $subject->review(p1c_request('it'));
+    p1c_assert($result->code() === 'invalid_response' && $result->items() === [], 'codice ' . $result->code());
+    p1c_assert($subject->lastUsage() === null, 'usage letto senza candidato');
+});
+
+foreach (['length', 'content_filter', 'incomplete'] as $finish) {
+    p1c_case('risposta OpenAI: terminazione ' . $finish . ' con JSON valido -> invalid_response, nessun usage', static function () use ($finish): void {
+        $GLOBALS['p1c']['finish'] = $finish;
+        $subject = p1c_subject('openai', 'gpt-test-1', true, 'p1c_admit_null');
+        $result = $subject->review(p1c_request('it'));
+        p1c_assert($result->code() === 'invalid_response' && $result->items() === [], 'codice ' . $result->code());
+        p1c_assert($subject->lastUsage() === null, 'usage letto con terminazione ' . $finish);
+        p1c_assert(count(p1c_posts()) === 1, 'POST diverse da una');
+    });
+}
+
+p1c_case('risposta Anthropic: la verifica di terminazione OpenAI non si applica', static function (): void {
+    $GLOBALS['p1c']['finish'] = 'length';
+    p1c_assert(p1c_run('anthropic', 'claude-test-1')->code() === null, 'esito Anthropic alterato dalla terminazione');
+});
+
+p1c_case('limite token: OpenAI prompt_token_limit_reached dopo POST -> output_truncated, zero item, usage nullo, filtri rimossi', static function (): void {
+    $GLOBALS['p1c']['builder_mode'] = 'token_limit_after_send';
+    $subject = p1c_subject('openai', 'gpt-test-1', true, 'p1c_admit_null');
+    $result = $subject->review(p1c_request('it'));
+    p1c_assert($result->code() === 'output_truncated' && $result->items() === [] && $subject->lastUsage() === null, 'codice ' . $result->code());
+    p1c_assert(count(p1c_posts()) === 1, 'POST diverse da una');
+    p1c_no_filters();
+});
+
+p1c_case('limite token: Anthropic con lo stesso codice resta provider_error', static function (): void {
+    $GLOBALS['p1c']['builder_mode'] = 'token_limit_after_send';
+    p1c_assert(p1c_run('anthropic', 'claude-test-1')->code() === 'provider_error', 'mappatura applicata ad Anthropic');
+    p1c_no_filters();
+});
+
+p1c_case('limite token: rifiuto della guardia nella stessa fase prevale -> provider_error, mai output_truncated', static function (): void {
+    $GLOBALS['p1c']['builder_mode'] = 'token_limit_after_send';
+    $GLOBALS['p1c']['attack_at'] = 'generate';
+    $GLOBALS['p1c']['attack_when'] = 'after';
+    $GLOBALS['p1c']['attack'] = ['method' => 'POST', 'url' => 'https://api.openai.com/v1/responses', 'args' => []];
+    p1c_assert(p1c_run()->code() === 'provider_error', 'codice diverso dal rifiuto della guardia');
+    p1c_no_filters();
+});
+
+p1c_case('limite token: altro WP_Error dopo POST resta provider_error', static function (): void {
+    $GLOBALS['p1c']['builder_mode'] = 'error_after_send';
+    p1c_assert(p1c_run()->code() === 'provider_error', 'codice diverso');
+    p1c_no_filters();
 });
 
 // --- Errori --------------------------------------------------------------

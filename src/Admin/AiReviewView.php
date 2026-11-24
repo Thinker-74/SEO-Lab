@@ -86,9 +86,17 @@ final class AiReviewView
         $html .= self::row(__('Provider', 'seo-lab'), self::providerLabel((string) $p['provider']));
         $html .= self::row(__('Model ID', 'seo-lab'), (string) $p['model']);
         $html .= self::row(__('Language', 'seo-lab'), (string) $p['language'] === 'it' ? __('Italian', 'seo-lab') : __('English', 'seo-lab'));
-        $html .= self::row(__('Maximum output', 'seo-lab'), '768 ' . __('tokens', 'seo-lab'));
+        $html .= self::row(__('Maximum output', 'seo-lab'), (string) $p['maxOutput'] . ' ' . __('tokens', 'seo-lab'));
+        if ((string) $p['provider'] === 'openai') {
+            $html .= self::row(__('Reasoning', 'seo-lab'), self::reasoningText($p['reasoningEffort'] ?? null));
+        }
         $html .= self::row(__('Technical reserve', 'seo-lab'), (string) $p['units'] . ' ' . __('units (operational estimate, not the provider invoice)', 'seo-lab'));
         $html .= '</tbody></table>';
+        $html .= '<p>' . esc_html__('Sending the request can be charged by the provider at its rates, even when the review returns no results.', 'seo-lab') . '</p>';
+        if ((string) $p['provider'] === 'openai') {
+            $html .= '<p>' . esc_html__('For OpenAI, any reasoning tokens count toward the maximum output.', 'seo-lab') . '</p>';
+        }
+        $html .= '<p>' . esc_html__('The assistant interprets only the report references that are available.', 'seo-lab') . '</p>';
         $html .= '<h3>' . esc_html__('Instructions (system)', 'seo-lab') . '</h3>';
         $html .= '<pre>' . self::literal((string) $p['system']) . '</pre>';
         $html .= '<h3>' . esc_html__('Data (only the findings of the report, no page values)', 'seo-lab') . '</h3>';
@@ -184,6 +192,8 @@ final class AiReviewView
                 return __('The AI provider cannot answer now. Nothing was stored.', 'seo-lab');
             case 'invalid_response':
                 return __('The AI answer was not valid and was not shown.', 'seo-lab');
+            case 'output_truncated':
+                return __('The AI answer reached the output limit and was not shown.', 'seo-lab');
             default:
                 return __('The AI review could not be completed.', 'seo-lab');
         }
@@ -209,6 +219,18 @@ final class AiReviewView
             default:
                 return __('Suggested test', 'seo-lab');
         }
+    }
+
+    /**
+     * Profilo di ragionamento per la richiesta: solo gpt-6-luna ha effort none; gli altri ID OpenAI usano il
+     * comportamento del connettore, con output a questo limite non verificato.
+     */
+    private static function reasoningText(?string $effort): string
+    {
+        if ($effort === 'none') {
+            return __('gpt-6-luna: reasoning effort none for this request', 'seo-lab');
+        }
+        return __('The model uses the connector default. Output at this limit is not verified for this model.', 'seo-lab');
     }
 
     private static function providerLabel(string $provider): string

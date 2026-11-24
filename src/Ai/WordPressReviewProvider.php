@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace SeoLab\Ai;
 
 use WordPress\AiClient\Providers\Http\DTO\RequestOptions;
+use WordPress\AiClient\Providers\Models\DTO\ModelConfig;
 use WordPress\AiClient\Providers\Models\TextGeneration\Contracts\TextGenerationModelInterface;
 use WordPress\AiClient\Results\DTO\GenerativeAiResult;
 
@@ -22,15 +23,18 @@ final class WordPressReviewProvider implements ReviewProvider
             'host' => 'api.openai.com',
             'path' => '/v1/responses',
             'candidates' => true,
+            'truncation' => false,
         ],
         'anthropic' => [
             'class' => 'WordPress\\AnthropicAiProvider\\Provider\\AnthropicProvider',
             'host' => 'api.anthropic.com',
             'path' => '/v1/messages',
             'candidates' => false,
+            'truncation' => true,
         ],
     ];
     private const MODELS_PATH = '/v1/models';
+    private const REASONING_NONE_MODEL = 'gpt-6-luna';
     private const MODEL_PATTERN = '/\A[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\z/';
     public const MAX_OUTPUT_TOKENS = 768;
     private const ADMISSION_REFUSALS = ['rate_limited', 'budget_exhausted'];
@@ -89,7 +93,7 @@ final class WordPressReviewProvider implements ReviewProvider
 
         $scope = new WordPressReviewHttpScope($connector['host'], static function (): int {
             return hrtime(true);
-        });
+        }, $connector['truncation']);
         $scope->enter();
         try {
             return $this->execute($request, $connector, $registry, $scope);
@@ -132,6 +136,15 @@ final class WordPressReviewProvider implements ReviewProvider
     }
 
     /**
+     * Profilo di ragionamento per la coppia esatta: solo OpenAI con gpt-6-luna usa effort none, ogni altra coppia
+     * resta senza opzione. Usato dall'adapter, dall'anteprima e dalla conferma.
+     */
+    public static function reasoningEffort(string $provider, string $model): ?string
+    {
+        return $provider === 'openai' && $model === self::REASONING_NONE_MODEL ? 'none' : null;
+    }
+
+    /**
      * Presenza del connettore e della sua autenticazione nel registry Core. Nessuna chiamata di rete.
      *
      * @param object $registry
@@ -164,7 +177,7 @@ final class WordPressReviewProvider implements ReviewProvider
     }
 
     /**
-     * @param array{class: string, host: string, path: string, candidates: bool} $connector
+     * @param array{class: string, host: string, path: string, candidates: bool, truncation: bool} $connector
      * @param object                                                             $registry
      */
     private function execute(ReviewRequest $request, array $connector, $registry, WordPressReviewHttpScope $scope): ReviewResult
@@ -197,6 +210,10 @@ final class WordPressReviewProvider implements ReviewProvider
         if ($connector['candidates']) {
             $builder = $builder->using_candidate_count(1);
         }
+        $effort = self::reasoningEffort($this->provider, $this->model);
+        if ($effort !== null) {
+            $builder = $builder->using_model_config(ModelConfig::fromArray(['customOptions' => ['reasoning' => ['effort' => $effort]]]));
+        }
 
         return $this->interpret($builder->generate_text_result(), $request, $scope);
     }
@@ -214,6 +231,14 @@ final class WordPressReviewProvider implements ReviewProvider
         }
         if ($scope->expired()) {
             return $this->failed($scope, 'timeout');
+        }
+        // Il segnale di troncamento precede decodifica del testo e usage: l'esito non porta item ne' conteggi.
+        if ($scope->truncated()) {
+            return $this->failed($scope, 'output_truncated');
+        }
+        // OpenAI: solo la terminazione stop del primo candidato vale, a prescindere dal testo (incomplete, content_filter).
+        if ($this->provider === 'openai' && !self::finishedWithStop($result)) {
+            return ReviewResult::failure('invalid_response');
         }
         if ($result->getProviderMetadata()->getId() !== $this->provider || $result->getModelMetadata()->getId() !== $this->model) {
             return ReviewResult::failure('invalid_response');
@@ -239,10 +264,16 @@ final class WordPressReviewProvider implements ReviewProvider
         if ($scoped !== null) {
             return $scoped;
         }
+        if ($scope->truncated()) {
+            return ReviewResult::failure('output_truncated');
+        }
         $code = $error->get_error_code();
         $data = $error->get_error_data();
         $status = is_array($data) && isset($data['status']) && is_int($data['status']) ? $data['status'] : 0;
 
+        if ($code === 'prompt_token_limit_reached' && $this->provider === 'openai') {
+            return ReviewResult::failure('output_truncated');
+        }
         if ($code === 'prompt_prevented') {
             return ReviewResult::failure('core_disabled');
         }
@@ -258,9 +289,28 @@ final class WordPressReviewProvider implements ReviewProvider
         return ReviewResult::failure('provider_error');
     }
 
+    /**
+     * Precedenza: timeout e rifiuti della guardia, poi il troncamento segnalato dal trasporto, poi il codice dato.
+     */
     private function failed(WordPressReviewHttpScope $scope, string $code): ReviewResult
     {
-        return $this->scopeFailure($scope) ?? ReviewResult::failure($code);
+        return $this->scopeFailure($scope) ?? ReviewResult::failure($scope->truncated() ? 'output_truncated' : $code);
+    }
+
+    /**
+     * Primo candidato con terminazione stop. Candidato assente, altra terminazione o eccezione: falso.
+     *
+     * @param mixed $result
+     */
+    private static function finishedWithStop($result): bool
+    {
+        try {
+            $candidates = $result->getCandidates();
+            $first = $candidates[0] ?? null;
+            return $first !== null && $first->getFinishReason()->isStop();
+        } catch (\Throwable $e) {
+            return false;
+        }
     }
 
     private function scopeFailure(WordPressReviewHttpScope $scope): ?ReviewResult

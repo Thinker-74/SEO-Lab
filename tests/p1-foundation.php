@@ -526,6 +526,7 @@ p1_case('risultato: codici di errore chiusi e senza contenuto', static function 
     $expected = [
         'disabled', 'unsupported_runtime', 'core_disabled', 'unconfigured', 'model_unavailable',
         'invalid_input', 'invalid_response', 'timeout', 'rate_limited', 'budget_exhausted', 'provider_error',
+        'output_truncated',
     ];
     p1_assert(ReviewResult::ERROR_CODES === $expected, 'elenco codici errore diverso dal contratto');
     foreach ($expected as $code) {
